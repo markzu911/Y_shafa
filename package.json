@@ -1,0 +1,11 @@
+{
+  "name": "sofa-placement-app",
+  "version": "1.0.0",
+  "description": "Gemini-powered sofa placement web app",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  }
+}

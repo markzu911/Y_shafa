@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>沙发摆放效果图</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">Gemini 室内图像工作流</p>
+          <h1>沙发摆放效果图</h1>
+        </div>
+      </div>
+      <div class="status-pill" id="modelStatus">检查模型中</div>
+    </header>
+
+    <main class="app-shell">
+      <section class="hero" aria-label="应用介绍">
+        <div class="hero-copy">
+          <p class="eyebrow">Gemini 室内图像工作流</p>
+          <h2>把一张房间照，变成可预览的软装方案。</h2>
+          <p>
+            上传房间和沙发图片，AI 会先读懂空间关系与家具细节，再生成对应视角、比例和清晰度的摆放效果图。
+          </p>
+          <div class="hero-actions">
+            <a class="hero-link" href="#workflow">开始制作</a>
+            <span>三步完成：分析房间 · 分析沙发 · 生成效果</span>
+          </div>
+        </div>
+
+      </section>
+
+      <section class="workflow-card" id="workflow">
+        <div class="section-heading">
+          <p class="eyebrow">工作台</p>
+          <h2>按顺序完成你的效果图</h2>
+          <p>每一步都会保留分析结果，方便后续生成时准确复用。</p>
+        </div>
+
+        <nav class="steps" aria-label="流程">
+          <button class="step is-active" data-step-target="1">
+            <span>1</span>
+            <strong>房间分析</strong>
+            <small>识别空间布局</small>
+          </button>
+          <button class="step" data-step-target="2" disabled>
+            <span>2</span>
+            <strong>沙发分析</strong>
+            <small>提取家具特征</small>
+          </button>
+          <button class="step" data-step-target="3" disabled>
+            <span>3</span>
+            <strong>生成效果</strong>
+            <small>输出摆放图</small>
+          </button>
+        </nav>
+
+      <section class="panel is-active" data-step="1">
+        <div class="copy">
+          <h2>上传房间图片</h2>
+          <p>模型会分析空间布局、家具关系、装修风格和适合摆放沙发的位置。</p>
+        </div>
+        <div class="workspace">
+          <label class="upload-box" for="roomInput">
+            <input id="roomInput" type="file" accept="image/*" />
+            <span class="upload-icon">+</span>
+            <strong>选择房间图片</strong>
+            <small>支持 JPG、PNG、WEBP，建议图片清晰且包含完整空间</small>
+          </label>
+          <div class="preview-wrap">
+            <img id="roomPreview" alt="房间图片预览" />
+          </div>
+        </div>
+        <button class="primary-action" id="analyzeRoomBtn" disabled>分析房间</button>
+        <div class="analysis-loading" id="roomLoading" hidden>
+          <span class="scan-orb" aria-hidden="true"></span>
+          <div>
+            <strong>正在分析房间</strong>
+            <p>识别空间布局、采光、动线和适合摆放的位置</p>
+          </div>
+          <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+        <div class="result-box" id="roomAnalysisBox" hidden></div>
+      </section>
+
+      <section class="panel" data-step="2">
+        <div class="copy">
+          <h2>上传沙发图片</h2>
+          <p>模型会提取沙发外形、材质、颜色和关键细节，作为生成效果图的参考。</p>
+        </div>
+        <div class="workspace">
+          <label class="upload-box" for="sofaInput">
+            <input id="sofaInput" type="file" accept="image/*" />
+            <span class="upload-icon">+</span>
+            <strong>选择沙发图片</strong>
+            <small>尽量使用主体完整、无大面积遮挡的产品图或实拍图</small>
+          </label>
+          <div class="preview-wrap">
+            <img id="sofaPreview" alt="沙发图片预览" />
+          </div>
+        </div>
+        <div class="button-row">
+          <button class="secondary-action" data-back="1">返回</button>
+          <button class="primary-action" id="analyzeSofaBtn" disabled>分析沙发</button>
+        </div>
+        <div class="analysis-loading" id="sofaLoading" hidden>
+          <span class="scan-orb" aria-hidden="true"></span>
+          <div>
+            <strong>正在分析沙发</strong>
+            <p>提取造型、材质、颜色和关键细节</p>
+          </div>
+          <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+        <div class="result-box" id="sofaAnalysisBox" hidden></div>
+      </section>
+
+      <section class="panel" data-step="3">
+        <div class="copy">
+          <h2>选择生成参数</h2>
+          <p>选择场景视角、清晰度和画面比例，生成最终的沙发摆放效果图。</p>
+        </div>
+
+        <div class="controls-grid">
+          <fieldset>
+            <legend>场景图</legend>
+            <div class="segmented" data-group="scene">
+              <button class="is-selected" data-value="远景图">远景图</button>
+              <button data-value="中近景">中近景</button>
+              <button data-value="近景">近景</button>
+              <button data-value="模特">模特</button>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>清晰度</legend>
+            <div class="segmented" data-group="resolution">
+              <button class="is-selected" data-value="1K">1K</button>
+              <button data-value="2K">2K</button>
+              <button data-value="4K">4K</button>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>比例</legend>
+            <div class="segmented" data-group="ratio">
+              <button class="is-selected" data-value="4:3">4:3</button>
+              <button data-value="3:4">3:4</button>
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="button-row">
+          <button class="secondary-action" data-back="2">返回</button>
+          <button class="primary-action" id="generateBtn">生成效果图</button>
+        </div>
+
+        <div class="generation-area" id="generationArea" hidden>
+          <div class="generated-frame">
+            <img id="generatedImage" alt="生成的沙发摆放效果图" />
+          </div>
+          <div class="result-actions">
+            <a class="download-link" id="downloadLink" download="sofa-placement.png">下载图片</a>
+            <p id="generationNote"></p>
+          </div>
+        </div>
+
+        <div class="history-area" id="historyArea" hidden>
+          <div class="history-heading">
+            <h3>历史记录</h3>
+            <p>点击小图放大查看</p>
+          </div>
+          <div class="history-grid" id="historyGrid" aria-label="生成图片历史记录"></div>
+        </div>
+      </section>
+      </section>
+    </main>
+
+    <div class="image-modal" id="imageModal" hidden>
+      <button class="modal-close" id="modalClose" type="button" aria-label="关闭预览">×</button>
+      <img id="modalImage" alt="放大的生成效果图" />
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
