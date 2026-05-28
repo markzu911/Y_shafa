@@ -635,6 +635,10 @@ h2 {
   display: block;
 }
 
+.generated-frame img.has-image {
+  cursor: zoom-in;
+}
+
 .primary-action,
 .secondary-action,
 .download-link {

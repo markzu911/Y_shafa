@@ -273,6 +273,12 @@ els.historyGrid.addEventListener('click', (event) => {
   }
 });
 
+els.generatedImage.addEventListener('click', () => {
+  if (els.generatedImage.src) {
+    openHistoryPreview(els.generatedImage.src);
+  }
+});
+
 els.modalClose.addEventListener('click', closeHistoryPreview);
 
 els.imageModal.addEventListener('click', (event) => {
