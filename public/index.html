@@ -64,10 +64,19 @@
 
       <section class="panel is-active" data-step="1">
         <div class="copy">
-          <h2>上传房间图片</h2>
-          <p>模型会分析空间布局、家具关系、装修风格和适合摆放沙发的位置。</p>
+          <h2 id="roomStepTitle">上传房间图片</h2>
+          <p id="roomStepDescription">模型会分析空间布局、家具关系、装修风格和适合摆放沙发的位置。</p>
         </div>
-        <div class="workspace">
+
+        <fieldset class="source-fieldset">
+          <legend>房间来源</legend>
+          <div class="segmented" data-group="roomMode">
+            <button class="is-selected" data-value="upload">上传房间</button>
+            <button data-value="virtual">虚拟房间</button>
+          </div>
+        </fieldset>
+
+        <div class="workspace" id="uploadRoomPane">
           <label class="upload-box" for="roomInput">
             <input id="roomInput" type="file" accept="image/*" />
             <span class="upload-icon">+</span>
@@ -78,6 +87,21 @@
             <img id="roomPreview" alt="房间图片预览" />
           </div>
         </div>
+
+        <div class="virtual-room-panel" id="virtualRoomPane" hidden>
+          <fieldset>
+            <legend>虚拟房间风格</legend>
+            <div class="segmented style-segmented" data-group="virtualStyle">
+              <button class="is-selected" data-value="现代简约">现代简约</button>
+              <button data-value="北欧风">北欧风</button>
+              <button data-value="新中式">新中式</button>
+              <button data-value="奶油风">奶油风</button>
+              <button data-value="寂宅风">寂宅风</button>
+              <button data-value="轻奢风">轻奢风</button>
+            </div>
+          </fieldset>
+        </div>
+
         <button class="primary-action" id="analyzeRoomBtn" disabled>分析房间</button>
         <div class="analysis-loading" id="roomLoading" hidden>
           <span class="scan-orb" aria-hidden="true"></span>

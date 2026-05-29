@@ -1,5 +1,7 @@
 const state = {
   currentStep: 1,
+  roomMode: 'upload',
+  virtualStyle: '现代简约',
   roomFile: null,
   sofaFile: null,
   roomAnalysis: '',
@@ -15,6 +17,10 @@ const els = {
   modelStatus: document.querySelector('#modelStatus'),
   steps: [...document.querySelectorAll('.step')],
   panels: [...document.querySelectorAll('.panel')],
+  roomStepTitle: document.querySelector('#roomStepTitle'),
+  roomStepDescription: document.querySelector('#roomStepDescription'),
+  uploadRoomPane: document.querySelector('#uploadRoomPane'),
+  virtualRoomPane: document.querySelector('#virtualRoomPane'),
   roomInput: document.querySelector('#roomInput'),
   sofaInput: document.querySelector('#sofaInput'),
   roomPreview: document.querySelector('#roomPreview'),
@@ -36,6 +42,15 @@ const els = {
   modalImage: document.querySelector('#modalImage'),
   modalClose: document.querySelector('#modalClose'),
   toast: document.querySelector('#toast')
+};
+
+const virtualStyleDescriptions = {
+  现代简约: '现代简约：干净线条、克制配色、简洁墙面和自然采光，房间空间清爽有秩序。',
+  北欧风: '北欧风：浅木色、白墙、柔和织物、自然光和轻盈温暖的居家氛围。',
+  新中式: '新中式：木质格栅、雅致留白、东方比例、温润材质和含蓄的装饰细节。',
+  奶油风: '奶油风：低饱和奶油色、柔和墙面、圆润软装和温暖细腻的自然光。',
+  寂宅风: '寂宅风：安静留白、微水泥或自然肌理、低饱和色彩和沉静克制的空间感。',
+  轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
 function showToast(message) {
@@ -142,9 +157,39 @@ function renderHistory() {
   });
 }
 
+function getVirtualRoomAnalysis() {
+  const styleDescription = virtualStyleDescriptions[state.virtualStyle] || virtualStyleDescriptions.现代简约;
+  return [
+    `虚拟房间模式：用户未上传房间图片，需要根据“${state.virtualStyle}”创建一个新的虚拟室内房间。`,
+    styleDescription,
+    '房间必须包含自然采光来源，例如窗户、落地窗、阳台门或阳台区域；单人沙发必须摆放在窗边或阳台采光区，并且不能遮挡主要通道、门窗、柜体或关键家具。',
+    '房间背景可以包含符合该风格的必要墙面、地面、窗帘、灯光、柜体或少量软装，但不能改变用户上传沙发的外形、颜色、材质和比例。'
+  ].join('\n');
+}
+
+function resetRoomContext() {
+  state.roomAnalysis = '';
+  els.roomAnalysisBox.hidden = true;
+  els.roomAnalysisBox.textContent = '';
+  goToStep(1);
+}
+
+function updateRoomModeUI() {
+  const isVirtual = state.roomMode === 'virtual';
+  els.uploadRoomPane.hidden = isVirtual;
+  els.virtualRoomPane.hidden = !isVirtual;
+  els.roomStepTitle.textContent = isVirtual ? '选择虚拟房间风格' : '上传房间图片';
+  els.roomStepDescription.textContent = isVirtual
+    ? '无需上传房间图，选择一个虚拟房间风格，生成时会按该风格创建房间。'
+    : '模型会分析空间布局、家具关系、装修风格和适合摆放沙发的位置。';
+  els.analyzeRoomBtn.textContent = isVirtual ? '确认虚拟房间风格，下一步' : '分析房间';
+  els.analyzeRoomBtn.disabled = isVirtual ? false : !state.roomFile;
+}
+
 function getParamsLabel() {
   const modelLabel = state.needsModel ? '需要模特' : '不需要模特';
-  return `${state.scene} · ${modelLabel} · ${state.resolution} · ${state.ratio}`;
+  const roomLabel = state.roomMode === 'virtual' ? `虚拟${state.virtualStyle}` : '上传房间';
+  return `${roomLabel} · ${state.scene} · ${modelLabel} · ${state.resolution} · ${state.ratio}`;
 }
 
 function addHistoryItem(payload) {
@@ -162,7 +207,7 @@ els.roomInput.addEventListener('change', () => {
   state.roomFile = file;
   state.roomAnalysis = '';
   els.roomAnalysisBox.hidden = true;
-  els.analyzeRoomBtn.disabled = false;
+  updateRoomModeUI();
   previewFile(file, els.roomPreview);
 });
 
@@ -177,6 +222,14 @@ els.sofaInput.addEventListener('change', () => {
 });
 
 els.analyzeRoomBtn.addEventListener('click', async () => {
+  if (state.roomMode === 'virtual') {
+    state.roomAnalysis = getVirtualRoomAnalysis();
+    els.roomAnalysisBox.textContent = state.roomAnalysis;
+    els.roomAnalysisBox.hidden = false;
+    goToStep(2);
+    return;
+  }
+
   if (!state.roomFile) return;
 
   try {
@@ -193,7 +246,7 @@ els.analyzeRoomBtn.addEventListener('click', async () => {
   } finally {
     setBusy(els.analyzeRoomBtn, '分析房间', false);
     setAnalysisLoading(els.roomLoading, false);
-    els.analyzeRoomBtn.disabled = !state.roomFile;
+    updateRoomModeUI();
   }
 });
 
@@ -219,14 +272,21 @@ els.analyzeSofaBtn.addEventListener('click', async () => {
 });
 
 els.generateBtn.addEventListener('click', async () => {
-  if (!state.roomFile || !state.sofaFile || !state.roomAnalysis || !state.sofaAnalysis) {
+  const hasRoomContext =
+    state.roomMode === 'virtual' ? Boolean(state.roomAnalysis && state.virtualStyle) : Boolean(state.roomFile && state.roomAnalysis);
+
+  if (!hasRoomContext || !state.sofaFile || !state.sofaAnalysis) {
     showToast('请先完成房间和沙发分析。');
     return;
   }
 
   const formData = new FormData();
-  formData.append('roomImage', state.roomFile);
+  if (state.roomMode === 'upload') {
+    formData.append('roomImage', state.roomFile);
+  }
   formData.append('sofaImage', state.sofaFile);
+  formData.append('roomMode', state.roomMode);
+  formData.append('virtualStyle', state.virtualStyle);
   formData.append('roomAnalysis', state.roomAnalysis);
   formData.append('sofaAnalysis', state.sofaAnalysis);
   formData.append('scene', state.scene);
@@ -260,6 +320,18 @@ document.querySelectorAll('.segmented').forEach((group) => {
     });
     state[group.dataset.group] =
       group.dataset.group === 'needsModel' ? button.dataset.value === 'true' : button.dataset.value;
+
+    if (group.dataset.group === 'roomMode') {
+      resetRoomContext();
+      updateRoomModeUI();
+    }
+
+    if (group.dataset.group === 'virtualStyle' && state.roomMode === 'virtual') {
+      state.roomAnalysis = '';
+      els.roomAnalysisBox.hidden = true;
+      els.roomAnalysisBox.textContent = '';
+      updateRoomModeUI();
+    }
 
     if (group.dataset.group === 'ratio') {
       els.generatedImage.parentElement.style.aspectRatio =
@@ -319,3 +391,5 @@ fetch('/api/health')
   .catch(() => {
     els.modelStatus.textContent = '服务未连接';
   });
+
+updateRoomModeUI();

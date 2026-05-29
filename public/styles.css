@@ -519,6 +519,26 @@ h2 {
   align-items: stretch;
 }
 
+.workspace[hidden] {
+  display: none;
+}
+
+.source-fieldset {
+  margin-bottom: 12px;
+}
+
+.virtual-room-panel {
+  margin-top: 12px;
+}
+
+.virtual-room-panel[hidden] {
+  display: none;
+}
+
+.style-segmented button {
+  min-width: 112px;
+}
+
 .upload-box {
   position: relative;
   min-height: 210px;
