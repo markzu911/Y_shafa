@@ -25,7 +25,6 @@ const state = {
 };
 
 const els = {
-  modelStatus: document.querySelector('#modelStatus'),
   creditStatus: document.querySelector('#creditStatus'),
   steps: [...document.querySelectorAll('.step')],
   panels: [...document.querySelectorAll('.panel')],
@@ -65,8 +64,8 @@ const virtualStyleDescriptions = {
   轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
-const MAX_TOOL_IMAGE_BYTES = 900 * 1024;
-const MAX_TOOL_IMAGE_EDGE = 1280;
+const MAX_TOOL_IMAGE_BYTES = 300 * 1024;
+const MAX_TOOL_IMAGE_EDGE = 1024;
 const MAX_RESULT_UPLOAD_BYTES = 1800 * 1024;
 const MAX_RESULT_UPLOAD_EDGE = 1600;
 
@@ -385,15 +384,19 @@ async function prepareToolImage(file) {
   let height = Math.max(1, Math.round(image.naturalHeight * scale));
   let blob = null;
 
-  for (const quality of [0.82, 0.72, 0.62, 0.52]) {
+  for (const quality of [0.74, 0.62, 0.5, 0.4]) {
     blob = await renderCompressedBlob(image, width, height, quality);
     if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
   }
 
-  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 640) {
-    width = Math.max(1, Math.round(width * 0.78));
-    height = Math.max(1, Math.round(height * 0.78));
-    blob = await renderCompressedBlob(image, width, height, 0.58);
+  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 480) {
+    width = Math.max(1, Math.round(width * 0.72));
+    height = Math.max(1, Math.round(height * 0.72));
+    blob = await renderCompressedBlob(image, width, height, 0.46);
+  }
+
+  if (blob && blob.size > MAX_TOOL_IMAGE_BYTES) {
+    blob = await renderCompressedBlob(image, width, height, 0.36);
   }
 
   if (!blob) return file;
@@ -725,16 +728,5 @@ window.addEventListener('message', (event) => {
 
 initSaasFromUrl();
 loadSaasLaunch();
-
-fetch('/api/health')
-  .then((response) => response.json())
-  .then((payload) => {
-    els.modelStatus.textContent = payload.ok
-      ? `分析：${payload.analysisModel} · 生图：${payload.imageModel}`
-      : '模型状态异常';
-  })
-  .catch(() => {
-    els.modelStatus.textContent = '服务未连接';
-  });
 
 updateRoomModeUI();
