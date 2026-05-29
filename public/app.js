@@ -64,9 +64,11 @@ const virtualStyleDescriptions = {
   轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
-const MAX_TOOL_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_SOURCE_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_TOOL_IMAGE_BYTES = 800 * 1024;
 const MAX_TOOL_IMAGE_EDGE = 1600;
 const TOOL_IMAGE_JPEG_QUALITY = 0.85;
+const MIN_TOOL_IMAGE_EDGE = 960;
 const MAX_RESULT_UPLOAD_BYTES = 1800 * 1024;
 const MAX_RESULT_UPLOAD_EDGE = 1600;
 
@@ -410,18 +412,33 @@ async function renderJpegBlob(image, width, height, quality) {
 
 async function prepareToolImage(file) {
   if (!file?.type?.startsWith('image/')) return file;
+  if (file.size > MAX_SOURCE_IMAGE_BYTES) {
+    throw new Error('图片超过 20MB，请更换或压缩后再上传。');
+  }
 
   const image = await loadImageElement(file);
   const scale = Math.min(1, MAX_TOOL_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
 
   let width = Math.max(1, Math.round(image.naturalWidth * scale));
   let height = Math.max(1, Math.round(image.naturalHeight * scale));
-  let blob = await renderJpegBlob(image, width, height, TOOL_IMAGE_JPEG_QUALITY);
+  let blob = null;
 
-  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 800) {
+  for (const quality of [TOOL_IMAGE_JPEG_QUALITY, 0.78, 0.7, 0.62]) {
+    blob = await renderJpegBlob(image, width, height, quality);
+    if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
+  }
+
+  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > MIN_TOOL_IMAGE_EDGE) {
     width = Math.max(1, Math.round(width * 0.85));
     height = Math.max(1, Math.round(height * 0.85));
-    blob = await renderJpegBlob(image, width, height, TOOL_IMAGE_JPEG_QUALITY);
+    for (const quality of [0.76, 0.68, 0.6]) {
+      blob = await renderJpegBlob(image, width, height, quality);
+      if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
+    }
+  }
+
+  if (blob && blob.size > MAX_TOOL_IMAGE_BYTES) {
+    blob = await renderJpegBlob(image, width, height, 0.52);
   }
 
   if (!blob) return file;
