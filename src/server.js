@@ -15,6 +15,7 @@ const ANALYSIS_MODEL = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash';
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
 const MAX_BODY_BYTES = 30 * 1024 * 1024;
 const GEMINI_REQUEST_TIMEOUT_MS = getPositiveInteger(process.env.GEMINI_REQUEST_TIMEOUT_MS, 120000);
+const SAAS_API_BASE = process.env.SAAS_API_BASE || 'http://aibigtree.com';
 
 if (!process.env.GEMINI_API_KEY) {
   console.warn('Warning: GEMINI_API_KEY is not set. API calls will fail until it is provided.');
@@ -49,6 +50,48 @@ function sendJson(res, status, payload) {
     'Content-Length': Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Content-Security-Policy', 'frame-ancestors *');
+}
+
+function isSaasProxyPath(pathname) {
+  return pathname.startsWith('/api/tool/') || pathname.startsWith('/api/upload/');
+}
+
+async function proxySaasRequest(req, res, pathnameWithSearch) {
+  try {
+    const targetUrl = new URL(pathnameWithSearch, SAAS_API_BASE);
+    const headers = {};
+    const contentType = req.headers['content-type'];
+
+    if (contentType) {
+      headers['Content-Type'] = contentType;
+    }
+
+    const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req);
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers,
+      body
+    });
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    setCorsHeaders(res);
+    res.writeHead(response.status, {
+      'Content-Type': response.headers.get('content-type') || 'application/json; charset=utf-8',
+      'Content-Length': buffer.length
+    });
+    res.end(buffer);
+  } catch (error) {
+    console.error(error);
+    setCorsHeaders(res);
+    sendJson(res, 502, { success: false, message: 'SaaS 接口代理失败，请稍后重试。' });
+  }
 }
 
 function getClientErrorMessage(error) {
@@ -520,8 +563,20 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    if (req.method === 'OPTIONS') {
+      setCorsHeaders(res);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/health') {
       sendJson(res, 200, { ok: true, analysisModel: ANALYSIS_MODEL, imageModel: IMAGE_MODEL });
+      return;
+    }
+
+    if (isSaasProxyPath(url.pathname)) {
+      await proxySaasRequest(req, res, `${url.pathname}${url.search}`);
       return;
     }
 

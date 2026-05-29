@@ -10,11 +10,23 @@ const state = {
   needsModel: false,
   resolution: '1K',
   ratio: '4:3',
-  history: []
+  history: [],
+  saas: {
+    userId: '',
+    toolId: '',
+    userIntegral: null,
+    toolIntegral: null,
+    launchUrl: '/api/tool/launch',
+    verifyUrl: '/api/tool/verify',
+    consumeUrl: '/api/tool/consume',
+    uploadTokenUrl: '/api/upload/direct-token',
+    uploadCommitUrl: '/api/upload/commit'
+  }
 };
 
 const els = {
   modelStatus: document.querySelector('#modelStatus'),
+  creditStatus: document.querySelector('#creditStatus'),
   steps: [...document.querySelectorAll('.step')],
   panels: [...document.querySelectorAll('.panel')],
   roomStepTitle: document.querySelector('#roomStepTitle'),
@@ -66,7 +78,9 @@ function showToast(message) {
 
 function setBusy(button, busyText, isBusy) {
   if (isBusy) {
-    button.dataset.originalText = button.textContent;
+    if (!button.classList.contains('is-busy')) {
+      button.dataset.originalText = button.textContent;
+    }
     button.textContent = busyText;
     button.disabled = true;
     button.classList.add('is-busy');
@@ -80,6 +94,171 @@ function setBusy(button, busyText, isBusy) {
 
 function setAnalysisLoading(element, isLoading) {
   element.hidden = !isLoading;
+}
+
+function cleanSaasValue(value) {
+  const text = String(value || '').trim();
+  return text && text !== 'null' && text !== 'undefined' ? text : '';
+}
+
+function hasSaasContext() {
+  return Boolean(state.saas.userId && state.saas.toolId);
+}
+
+function updateCreditStatus(text) {
+  if (text) {
+    els.creditStatus.textContent = text;
+    return;
+  }
+
+  if (state.saas.userIntegral !== null && state.saas.userIntegral !== undefined && state.saas.userIntegral !== '') {
+    els.creditStatus.textContent = `积分：${state.saas.userIntegral}`;
+    return;
+  }
+
+  els.creditStatus.textContent = hasSaasContext() ? '积分：读取中' : '积分：--';
+}
+
+function applySaasPayload(data = {}) {
+  const userIntegral = data.user?.integral ?? data.currentIntegral;
+  const toolIntegral = data.tool?.integral ?? data.requiredIntegral ?? data.consumedIntegral;
+
+  if (userIntegral !== undefined && userIntegral !== null) {
+    state.saas.userIntegral = userIntegral;
+  }
+
+  if (toolIntegral !== undefined && toolIntegral !== null) {
+    state.saas.toolIntegral = toolIntegral;
+  }
+
+  updateCreditStatus();
+}
+
+function applySaasConfig(config = {}) {
+  const next = {
+    userId: cleanSaasValue(config.userId) || state.saas.userId,
+    toolId: cleanSaasValue(config.toolId) || state.saas.toolId,
+    launchUrl: cleanSaasValue(config.launchUrl) || state.saas.launchUrl,
+    verifyUrl: cleanSaasValue(config.verifyUrl) || state.saas.verifyUrl,
+    consumeUrl: cleanSaasValue(config.consumeUrl || config.callbackUrl) || state.saas.consumeUrl,
+    uploadTokenUrl: cleanSaasValue(config.uploadTokenUrl) || state.saas.uploadTokenUrl,
+    uploadCommitUrl: cleanSaasValue(config.uploadCommitUrl) || state.saas.uploadCommitUrl
+  };
+
+  Object.assign(state.saas, next);
+  updateCreditStatus();
+}
+
+function getSaasRequestBody() {
+  return {
+    userId: state.saas.userId,
+    toolId: state.saas.toolId
+  };
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  const ok = response.ok && (payload.success === true || payload.valid === true);
+  if (!ok) {
+    const error = new Error(payload.message || payload.error || '请求失败，请稍后重试。');
+    error.payload = payload;
+    throw error;
+  }
+  return payload;
+}
+
+async function loadSaasLaunch() {
+  if (!hasSaasContext()) return;
+
+  updateCreditStatus('积分：读取中');
+  try {
+    const payload = await postJson(state.saas.launchUrl, getSaasRequestBody());
+    applySaasPayload(payload.data || {});
+  } catch (error) {
+    updateCreditStatus('积分：获取失败');
+  }
+}
+
+async function ensureCreditsAvailable() {
+  if (!hasSaasContext()) return true;
+
+  try {
+    const payload = await postJson(state.saas.verifyUrl, getSaasRequestBody());
+    applySaasPayload(payload.data || {});
+    return true;
+  } catch (error) {
+    showToast('您的积分不足');
+    return false;
+  }
+}
+
+async function consumeCredits() {
+  if (!hasSaasContext()) return null;
+
+  const payload = await postJson(state.saas.consumeUrl, getSaasRequestBody());
+  applySaasPayload(payload.data || {});
+  return payload;
+}
+
+async function imageDataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
+function getImageExtension(mimeType) {
+  if (mimeType === 'image/jpeg') return 'jpg';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'png';
+}
+
+async function uploadGeneratedImage(imageDataUrl) {
+  if (!hasSaasContext()) return null;
+
+  const blob = await imageDataUrlToBlob(imageDataUrl);
+  const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
+  const extension = getImageExtension(mimeType);
+  const fileName = `sofa-placement-${Date.now()}.${extension}`;
+  const token = await postJson(state.saas.uploadTokenUrl, {
+    ...getSaasRequestBody(),
+    source: 'result',
+    fileName,
+    mimeType,
+    fileSize: blob.size
+  });
+  const uploadUrl = token.uploadUrl || token.proxyUploadUrl || token.ossUploadUrl;
+
+  if (!uploadUrl || !token.objectKey) {
+    throw new Error('图片上传签名返回异常。');
+  }
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: token.method || 'PUT',
+    headers: token.headers || { 'Content-Type': mimeType },
+    body: blob
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error('生成图片上传失败。');
+  }
+
+  const commit = await postJson(state.saas.uploadCommitUrl, {
+    ...getSaasRequestBody(),
+    source: 'result',
+    objectKey: token.objectKey,
+    fileSize: blob.size
+  });
+
+  if (commit.savedToRecords !== true && commit.image?.savedToRecords !== true) {
+    throw new Error('生成图片未成功入库。');
+  }
+
+  return commit;
 }
 
 function goToStep(step) {
@@ -222,17 +401,20 @@ els.sofaInput.addEventListener('change', () => {
 });
 
 els.analyzeRoomBtn.addEventListener('click', async () => {
-  if (state.roomMode === 'virtual') {
-    state.roomAnalysis = getVirtualRoomAnalysis();
-    els.roomAnalysisBox.textContent = state.roomAnalysis;
-    els.roomAnalysisBox.hidden = false;
-    goToStep(2);
-    return;
-  }
-
-  if (!state.roomFile) return;
-
   try {
+    setBusy(els.analyzeRoomBtn, '正在校验积分...', true);
+    if (!(await ensureCreditsAvailable())) return;
+
+    if (state.roomMode === 'virtual') {
+      state.roomAnalysis = getVirtualRoomAnalysis();
+      els.roomAnalysisBox.textContent = state.roomAnalysis;
+      els.roomAnalysisBox.hidden = false;
+      goToStep(2);
+      return;
+    }
+
+    if (!state.roomFile) return;
+
     setBusy(els.analyzeRoomBtn, '正在分析房间...', true);
     setAnalysisLoading(els.roomLoading, true);
     els.roomAnalysisBox.hidden = true;
@@ -295,9 +477,22 @@ els.generateBtn.addEventListener('click', async () => {
   formData.append('ratio', state.ratio);
 
   try {
+    setBusy(els.generateBtn, '正在校验积分...', true);
+    if (!(await ensureCreditsAvailable())) return;
+
     setBusy(els.generateBtn, '正在生成效果图...', true);
     els.generationArea.hidden = true;
     const payload = await postForm('/api/generate', formData);
+    setBusy(els.generateBtn, '正在扣除积分...', true);
+    await consumeCredits();
+
+    try {
+      setBusy(els.generateBtn, '正在保存图片...', true);
+      await uploadGeneratedImage(payload.image);
+    } catch (uploadError) {
+      showToast(`图片已生成并扣除积分，但保存到我的图片失败：${uploadError.message}`);
+    }
+
     els.generatedImage.src = payload.image;
     els.generatedImage.classList.add('has-image');
     els.downloadLink.href = payload.image;
@@ -380,6 +575,30 @@ els.steps.forEach((button) => {
     }
   });
 });
+
+function initSaasFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  applySaasConfig({
+    userId: params.get('userId'),
+    toolId: params.get('toolId'),
+    launchUrl: params.get('launchUrl'),
+    verifyUrl: params.get('verifyUrl'),
+    consumeUrl: params.get('consumeUrl'),
+    uploadTokenUrl: params.get('uploadTokenUrl'),
+    uploadCommitUrl: params.get('uploadCommitUrl')
+  });
+}
+
+window.addEventListener('message', (event) => {
+  const data = event.data;
+  if (!data || data.type !== 'SAAS_INIT') return;
+
+  applySaasConfig(data);
+  loadSaasLaunch();
+});
+
+initSaasFromUrl();
+loadSaasLaunch();
 
 fetch('/api/health')
   .then((response) => response.json())

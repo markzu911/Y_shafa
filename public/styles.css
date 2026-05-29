@@ -112,6 +112,13 @@ a {
   gap: 14px;
 }
 
+.topbar-status {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
 .brand-mark {
   width: 42px;
   height: 42px;
@@ -169,6 +176,11 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.credit-pill {
+  color: var(--clay-dark);
+  font-weight: 900;
 }
 
 .app-shell {
@@ -1160,6 +1172,12 @@ body.is-modal-open {
 
   .status-pill {
     max-width: 100%;
+  }
+
+  .topbar-status {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .app-shell {
