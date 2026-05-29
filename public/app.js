@@ -161,17 +161,42 @@ function getSaasRequestBody() {
   };
 }
 
+function getHttpErrorMessage(response, payload = {}, action = '请求') {
+  const serverMessage = payload.error || payload.message;
+  if (serverMessage) return serverMessage;
+
+  const status = response.status;
+  if (status === 413) return '上传图片过大：请更换图片，或将图片压缩后再重试。';
+  if (status === 429) return '请求过于频繁：当前服务繁忙，请稍后再试。';
+  if (status === 502) return `${action}失败：服务网关异常，可能是上游 AI 接口暂时不可用，请稍后重试。`;
+  if (status === 503) return `${action}失败：服务暂时不可用（HTTP 503），可能是平台工具实例未启动、正在重启、上游 AI 服务繁忙或部署代理超时，请稍后重试。`;
+  if (status === 504) return `${action}失败：服务响应超时（HTTP 504），AI 生成耗时过长，请稍后重试。`;
+  if (status >= 500) return `${action}失败：服务器处理异常（HTTP ${status}），请稍后重试。`;
+  return `${action}失败（HTTP ${status}），请检查后重试。`;
+}
+
+function getNetworkErrorMessage(error, action = '请求') {
+  if (error?.name === 'AbortError') return `${action}失败：请求已超时，请稍后重试。`;
+  return `${action}失败：网络连接异常或服务无法访问，请检查网络/部署状态后重试。`;
+}
+
 async function postJson(url, body) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error));
+  }
 
   const payload = await response.json().catch(() => ({}));
   const ok = response.ok && (payload.success === true || payload.valid === true);
   if (!ok) {
-    const error = new Error(payload.message || payload.error || '请求失败，请稍后重试。');
+    const error = new Error(getHttpErrorMessage(response, payload));
+    error.status = response.status;
     error.payload = payload;
     throw error;
   }
@@ -198,7 +223,7 @@ async function ensureCreditsAvailable() {
     applySaasPayload(payload.data || {});
     return true;
   } catch (error) {
-    showToast('您的积分不足');
+    showToast(error.status === 402 || error.payload?.insufficient === true ? '您的积分不足' : error.message);
     return false;
   }
 }
@@ -404,14 +429,19 @@ async function prepareToolImage(file) {
 }
 
 async function postForm(url, formData) {
-  const response = await fetch(url, {
-    method: 'POST',
-    body: formData
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData
+    });
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error, 'AI 处理'));
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || '请求失败，请稍后重试。');
+    throw new Error(getHttpErrorMessage(response, payload, url.includes('/api/generate') ? '图片生成' : '图片分析'));
   }
   return payload;
 }
