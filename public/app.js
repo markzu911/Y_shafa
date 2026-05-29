@@ -5,6 +5,7 @@ const state = {
   roomAnalysis: '',
   sofaAnalysis: '',
   scene: '远景图',
+  needsModel: false,
   resolution: '1K',
   ratio: '4:3',
   history: []
@@ -141,10 +142,15 @@ function renderHistory() {
   });
 }
 
+function getParamsLabel() {
+  const modelLabel = state.needsModel ? '需要模特' : '不需要模特';
+  return `${state.scene} · ${modelLabel} · ${state.resolution} · ${state.ratio}`;
+}
+
 function addHistoryItem(payload) {
   state.history.unshift({
     image: payload.image,
-    label: `${state.scene} · ${state.resolution} · ${state.ratio}`
+    label: getParamsLabel()
   });
   state.history = state.history.slice(0, 12);
   renderHistory();
@@ -224,6 +230,7 @@ els.generateBtn.addEventListener('click', async () => {
   formData.append('roomAnalysis', state.roomAnalysis);
   formData.append('sofaAnalysis', state.sofaAnalysis);
   formData.append('scene', state.scene);
+  formData.append('needsModel', String(state.needsModel));
   formData.append('resolution', state.resolution);
   formData.append('ratio', state.ratio);
 
@@ -234,7 +241,7 @@ els.generateBtn.addEventListener('click', async () => {
     els.generatedImage.src = payload.image;
     els.generatedImage.classList.add('has-image');
     els.downloadLink.href = payload.image;
-    els.generationNote.textContent = payload.note || `${state.scene} · ${state.resolution} · ${state.ratio}`;
+    els.generationNote.textContent = payload.note || getParamsLabel();
     els.generationArea.hidden = false;
     addHistoryItem(payload);
   } catch (error) {
@@ -251,7 +258,8 @@ document.querySelectorAll('.segmented').forEach((group) => {
     group.querySelectorAll('button').forEach((item) => {
       item.classList.toggle('is-selected', item === button);
     });
-    state[group.dataset.group] = button.dataset.value;
+    state[group.dataset.group] =
+      group.dataset.group === 'needsModel' ? button.dataset.value === 'true' : button.dataset.value;
 
     if (group.dataset.group === 'ratio') {
       els.generatedImage.parentElement.style.aspectRatio =
