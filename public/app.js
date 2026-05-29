@@ -64,8 +64,9 @@ const virtualStyleDescriptions = {
   轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
-const MAX_TOOL_IMAGE_BYTES = 300 * 1024;
-const MAX_TOOL_IMAGE_EDGE = 1024;
+const MAX_TOOL_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_TOOL_IMAGE_EDGE = 1600;
+const TOOL_IMAGE_JPEG_QUALITY = 0.85;
 const MAX_RESULT_UPLOAD_BYTES = 1800 * 1024;
 const MAX_RESULT_UPLOAD_EDGE = 1600;
 
@@ -361,46 +362,45 @@ function canvasToBlob(canvas, mimeType, quality) {
   });
 }
 
-async function renderCompressedBlob(image, width, height, quality) {
+async function renderImageBlob(image, width, height, mimeType, quality) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext('2d');
+  if (mimeType === 'image/jpeg') {
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+  }
   context.drawImage(image, 0, 0, width, height);
-  return (await canvasToBlob(canvas, 'image/webp', quality)) || (await canvasToBlob(canvas, 'image/jpeg', quality));
+  return canvasToBlob(canvas, mimeType, quality);
+}
+
+async function renderCompressedBlob(image, width, height, quality) {
+  return (await renderImageBlob(image, width, height, 'image/webp', quality)) || renderImageBlob(image, width, height, 'image/jpeg', quality);
+}
+
+async function renderJpegBlob(image, width, height, quality) {
+  return renderImageBlob(image, width, height, 'image/jpeg', quality);
 }
 
 async function prepareToolImage(file) {
   if (!file?.type?.startsWith('image/')) return file;
 
   const image = await loadImageElement(file);
-  let scale = Math.min(1, MAX_TOOL_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
-
-  if (file.size <= MAX_TOOL_IMAGE_BYTES && scale === 1) {
-    return file;
-  }
+  const scale = Math.min(1, MAX_TOOL_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
 
   let width = Math.max(1, Math.round(image.naturalWidth * scale));
   let height = Math.max(1, Math.round(image.naturalHeight * scale));
-  let blob = null;
+  let blob = await renderJpegBlob(image, width, height, TOOL_IMAGE_JPEG_QUALITY);
 
-  for (const quality of [0.74, 0.62, 0.5, 0.4]) {
-    blob = await renderCompressedBlob(image, width, height, quality);
-    if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
-  }
-
-  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 480) {
-    width = Math.max(1, Math.round(width * 0.72));
-    height = Math.max(1, Math.round(height * 0.72));
-    blob = await renderCompressedBlob(image, width, height, 0.46);
-  }
-
-  if (blob && blob.size > MAX_TOOL_IMAGE_BYTES) {
-    blob = await renderCompressedBlob(image, width, height, 0.36);
+  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 800) {
+    width = Math.max(1, Math.round(width * 0.85));
+    height = Math.max(1, Math.round(height * 0.85));
+    blob = await renderJpegBlob(image, width, height, TOOL_IMAGE_JPEG_QUALITY);
   }
 
   if (!blob) return file;
-  return new File([blob], getImageFileName(file, 'webp'), { type: blob.type || 'image/webp' });
+  return new File([blob], getImageFileName(file, 'jpg'), { type: 'image/jpeg' });
 }
 
 async function postForm(url, formData) {
