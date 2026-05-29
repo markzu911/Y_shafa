@@ -65,6 +65,9 @@ const virtualStyleDescriptions = {
   轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
+const MAX_TOOL_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_TOOL_IMAGE_EDGE = 1800;
+
 function showToast(message) {
   const text = String(message || '请求失败，请稍后重试。');
   els.toast.textContent = text;
@@ -217,6 +220,31 @@ function getImageExtension(mimeType) {
   return 'png';
 }
 
+async function putGeneratedBlob(token, blob, mimeType) {
+  const candidates = [token.uploadUrl, token.proxyUploadUrl, token.ossUploadUrl].filter(Boolean);
+  const uniqueCandidates = [...new Set(candidates)];
+  let lastError = null;
+
+  for (const uploadUrl of uniqueCandidates) {
+    try {
+      const response = await fetch(uploadUrl, {
+        method: token.method || 'PUT',
+        headers: token.headers || { 'Content-Type': mimeType },
+        body: blob
+      });
+
+      if (response.ok) return;
+
+      lastError = new Error(`生成图片上传失败（HTTP ${response.status}）。`);
+      if (response.status !== 413) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('生成图片上传失败。');
+}
+
 async function uploadGeneratedImage(imageDataUrl) {
   if (!hasSaasContext()) return null;
 
@@ -231,21 +259,11 @@ async function uploadGeneratedImage(imageDataUrl) {
     mimeType,
     fileSize: blob.size
   });
-  const uploadUrl = token.uploadUrl || token.proxyUploadUrl || token.ossUploadUrl;
-
-  if (!uploadUrl || !token.objectKey) {
+  if (!(token.uploadUrl || token.proxyUploadUrl || token.ossUploadUrl) || !token.objectKey) {
     throw new Error('图片上传签名返回异常。');
   }
 
-  const uploadResponse = await fetch(uploadUrl, {
-    method: token.method || 'PUT',
-    headers: token.headers || { 'Content-Type': mimeType },
-    body: blob
-  });
-
-  if (!uploadResponse.ok) {
-    throw new Error('生成图片上传失败。');
-  }
+  await putGeneratedBlob(token, blob, mimeType);
 
   const commit = await postJson(state.saas.uploadCommitUrl, {
     ...getSaasRequestBody(),
@@ -280,6 +298,71 @@ function previewFile(file, img) {
   const url = URL.createObjectURL(file);
   img.src = url;
   img.classList.add('has-image');
+}
+
+function getImageFileName(file, extension) {
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'image';
+  return `${baseName}.${extension}`;
+}
+
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('图片读取失败，请更换图片后重试。'));
+    };
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas, mimeType, quality) {
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, mimeType, quality);
+  });
+}
+
+async function renderCompressedBlob(image, width, height, quality) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, width, height);
+  return (await canvasToBlob(canvas, 'image/webp', quality)) || (await canvasToBlob(canvas, 'image/jpeg', quality));
+}
+
+async function prepareToolImage(file) {
+  if (!file?.type?.startsWith('image/')) return file;
+
+  const image = await loadImageElement(file);
+  let scale = Math.min(1, MAX_TOOL_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+
+  if (file.size <= MAX_TOOL_IMAGE_BYTES && scale === 1) {
+    return file;
+  }
+
+  let width = Math.max(1, Math.round(image.naturalWidth * scale));
+  let height = Math.max(1, Math.round(image.naturalHeight * scale));
+  let blob = null;
+
+  for (const quality of [0.9, 0.82, 0.74, 0.66]) {
+    blob = await renderCompressedBlob(image, width, height, quality);
+    if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
+  }
+
+  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 960) {
+    width = Math.round(width * 0.82);
+    height = Math.round(height * 0.82);
+    blob = await renderCompressedBlob(image, width, height, 0.72);
+  }
+
+  if (!blob) return file;
+  return new File([blob], getImageFileName(file, 'webp'), { type: blob.type || 'image/webp' });
 }
 
 async function postForm(url, formData) {
@@ -380,24 +463,32 @@ function addHistoryItem(payload) {
   renderHistory();
 }
 
-els.roomInput.addEventListener('change', () => {
+els.roomInput.addEventListener('change', async () => {
   const file = els.roomInput.files?.[0];
   if (!file) return;
-  state.roomFile = file;
-  state.roomAnalysis = '';
-  els.roomAnalysisBox.hidden = true;
-  updateRoomModeUI();
-  previewFile(file, els.roomPreview);
+  try {
+    state.roomFile = await prepareToolImage(file);
+    state.roomAnalysis = '';
+    els.roomAnalysisBox.hidden = true;
+    updateRoomModeUI();
+    previewFile(file, els.roomPreview);
+  } catch (error) {
+    showToast(error.message);
+  }
 });
 
-els.sofaInput.addEventListener('change', () => {
+els.sofaInput.addEventListener('change', async () => {
   const file = els.sofaInput.files?.[0];
   if (!file) return;
-  state.sofaFile = file;
-  state.sofaAnalysis = '';
-  els.sofaAnalysisBox.hidden = true;
-  els.analyzeSofaBtn.disabled = false;
-  previewFile(file, els.sofaPreview);
+  try {
+    state.sofaFile = await prepareToolImage(file);
+    state.sofaAnalysis = '';
+    els.sofaAnalysisBox.hidden = true;
+    els.analyzeSofaBtn.disabled = false;
+    previewFile(file, els.sofaPreview);
+  } catch (error) {
+    showToast(error.message);
+  }
 });
 
 els.analyzeRoomBtn.addEventListener('click', async () => {
