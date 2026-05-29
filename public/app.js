@@ -65,8 +65,10 @@ const virtualStyleDescriptions = {
   轻奢风: '轻奢风：精致材质、金属或石材点缀、干净高级的线条和明亮通透的采光。'
 };
 
-const MAX_TOOL_IMAGE_BYTES = 4 * 1024 * 1024;
-const MAX_TOOL_IMAGE_EDGE = 1800;
+const MAX_TOOL_IMAGE_BYTES = 900 * 1024;
+const MAX_TOOL_IMAGE_EDGE = 1280;
+const MAX_RESULT_UPLOAD_BYTES = 1800 * 1024;
+const MAX_RESULT_UPLOAD_EDGE = 1600;
 
 function showToast(message) {
   const text = String(message || '请求失败，请稍后重试。');
@@ -214,6 +216,39 @@ async function imageDataUrlToBlob(dataUrl) {
   return response.blob();
 }
 
+async function dataUrlToImageElement(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('生成图片读取失败。'));
+    image.src = dataUrl;
+  });
+}
+
+async function compressDataUrlImage(dataUrl, maxBytes, maxEdge) {
+  const originalBlob = await imageDataUrlToBlob(dataUrl);
+  if (originalBlob.size <= maxBytes) return originalBlob;
+
+  const image = await dataUrlToImageElement(dataUrl);
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  let width = Math.max(1, Math.round(image.naturalWidth * scale));
+  let height = Math.max(1, Math.round(image.naturalHeight * scale));
+  let blob = null;
+
+  for (const quality of [0.82, 0.72, 0.62]) {
+    blob = await renderCompressedBlob(image, width, height, quality);
+    if (blob && blob.size <= maxBytes) break;
+  }
+
+  while (blob && blob.size > maxBytes && Math.max(width, height) > 960) {
+    width = Math.max(1, Math.round(width * 0.84));
+    height = Math.max(1, Math.round(height * 0.84));
+    blob = await renderCompressedBlob(image, width, height, 0.68);
+  }
+
+  return blob || originalBlob;
+}
+
 function getImageExtension(mimeType) {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
@@ -248,7 +283,7 @@ async function putGeneratedBlob(token, blob, mimeType) {
 async function uploadGeneratedImage(imageDataUrl) {
   if (!hasSaasContext()) return null;
 
-  const blob = await imageDataUrlToBlob(imageDataUrl);
+  const blob = await compressDataUrlImage(imageDataUrl, MAX_RESULT_UPLOAD_BYTES, MAX_RESULT_UPLOAD_EDGE);
   const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
   const extension = getImageExtension(mimeType);
   const fileName = `sofa-placement-${Date.now()}.${extension}`;
@@ -350,15 +385,15 @@ async function prepareToolImage(file) {
   let height = Math.max(1, Math.round(image.naturalHeight * scale));
   let blob = null;
 
-  for (const quality of [0.9, 0.82, 0.74, 0.66]) {
+  for (const quality of [0.82, 0.72, 0.62, 0.52]) {
     blob = await renderCompressedBlob(image, width, height, quality);
     if (blob && blob.size <= MAX_TOOL_IMAGE_BYTES) break;
   }
 
-  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 960) {
-    width = Math.round(width * 0.82);
-    height = Math.round(height * 0.82);
-    blob = await renderCompressedBlob(image, width, height, 0.72);
+  while (blob && blob.size > MAX_TOOL_IMAGE_BYTES && Math.max(width, height) > 640) {
+    width = Math.max(1, Math.round(width * 0.78));
+    height = Math.max(1, Math.round(height * 0.78));
+    blob = await renderCompressedBlob(image, width, height, 0.58);
   }
 
   if (!blob) return file;
