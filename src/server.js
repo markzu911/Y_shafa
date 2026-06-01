@@ -323,7 +323,26 @@ function isTransientGeminiError(message, status) {
   );
 }
 
-async function generateFromParts(parts, model) {
+function normalizeImageSize(value) {
+  const size = String(value || '1K').trim().toUpperCase();
+  return ['1K', '2K', '4K'].includes(size) ? size : '1K';
+}
+
+function normalizeAspectRatio(value) {
+  const ratio = String(value || '4:3').trim();
+  return ['4:3', '3:4'].includes(ratio) ? ratio : '4:3';
+}
+
+function getImageGenerationConfig({ resolution, ratio }) {
+  return {
+    imageConfig: {
+      aspectRatio: normalizeAspectRatio(ratio),
+      imageSize: normalizeImageSize(resolution)
+    }
+  };
+}
+
+async function generateFromParts(parts, model, generationConfig = null) {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error('请先设置 GEMINI_API_KEY 环境变量。');
   }
@@ -333,14 +352,20 @@ async function generateFromParts(parts, model) {
   );
   url.searchParams.set('key', process.env.GEMINI_API_KEY);
 
-  const requestBody = JSON.stringify({
+  const requestPayload = {
     contents: [
       {
         role: 'user',
         parts
       }
     ]
-  });
+  };
+
+  if (generationConfig) {
+    requestPayload.generationConfig = generationConfig;
+  }
+
+  const requestBody = JSON.stringify(requestPayload);
 
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -550,7 +575,7 @@ async function handleGenerate(req, res) {
   const result = await generateFromParts([
     { text: prompt },
     ...imageParts
-  ], IMAGE_MODEL);
+  ], IMAGE_MODEL, getImageGenerationConfig({ resolution, ratio }));
 
   if (!result.image) {
     throw new Error(result.text || '模型没有返回图片，请稍后重试或调整参数。');
