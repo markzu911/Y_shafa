@@ -69,8 +69,6 @@ const MAX_TOOL_IMAGE_BYTES = 800 * 1024;
 const MAX_TOOL_IMAGE_EDGE = 1600;
 const TOOL_IMAGE_JPEG_QUALITY = 0.85;
 const MIN_TOOL_IMAGE_EDGE = 960;
-const MAX_RESULT_UPLOAD_BYTES = 1800 * 1024;
-const MAX_RESULT_UPLOAD_EDGE = 1600;
 
 function showToast(message) {
   const text = String(message || '请求失败，请稍后重试。');
@@ -252,30 +250,6 @@ async function dataUrlToImageElement(dataUrl) {
   });
 }
 
-async function compressDataUrlImage(dataUrl, maxBytes, maxEdge) {
-  const originalBlob = await imageDataUrlToBlob(dataUrl);
-  if (originalBlob.size <= maxBytes) return originalBlob;
-
-  const image = await dataUrlToImageElement(dataUrl);
-  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
-  let width = Math.max(1, Math.round(image.naturalWidth * scale));
-  let height = Math.max(1, Math.round(image.naturalHeight * scale));
-  let blob = null;
-
-  for (const quality of [0.82, 0.72, 0.62]) {
-    blob = await renderCompressedBlob(image, width, height, quality);
-    if (blob && blob.size <= maxBytes) break;
-  }
-
-  while (blob && blob.size > maxBytes && Math.max(width, height) > 960) {
-    width = Math.max(1, Math.round(width * 0.84));
-    height = Math.max(1, Math.round(height * 0.84));
-    blob = await renderCompressedBlob(image, width, height, 0.68);
-  }
-
-  return blob || originalBlob;
-}
-
 function getImageExtension(mimeType) {
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType === 'image/webp') return 'webp';
@@ -310,7 +284,7 @@ async function putGeneratedBlob(token, blob, mimeType) {
 async function uploadGeneratedImage(imageDataUrl) {
   if (!hasSaasContext()) return null;
 
-  const blob = await compressDataUrlImage(imageDataUrl, MAX_RESULT_UPLOAD_BYTES, MAX_RESULT_UPLOAD_EDGE);
+  const blob = await imageDataUrlToBlob(imageDataUrl);
   const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
   const extension = getImageExtension(mimeType);
   const fileName = `sofa-placement-${Date.now()}.${extension}`;
@@ -400,10 +374,6 @@ async function renderImageBlob(image, width, height, mimeType, quality) {
   }
   context.drawImage(image, 0, 0, width, height);
   return canvasToBlob(canvas, mimeType, quality);
-}
-
-async function renderCompressedBlob(image, width, height, quality) {
-  return (await renderImageBlob(image, width, height, 'image/webp', quality)) || renderImageBlob(image, width, height, 'image/jpeg', quality);
 }
 
 async function renderJpegBlob(image, width, height, quality) {
