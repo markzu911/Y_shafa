@@ -8,6 +8,7 @@ const state = {
   sofaAnalysis: '',
   scene: '远景图',
   needsModel: false,
+  modelDescription: '',
   resolution: '1K',
   ratio: '4:3',
   history: [],
@@ -21,7 +22,11 @@ const state = {
     consumeUrl: '/api/tool/consume',
     uploadTokenUrl: '/api/upload/direct-token',
     uploadCommitUrl: '/api/upload/commit'
-  }
+  },
+  mode: 'agent',
+  agentStep: 'welcome',
+  chatMessages: [],
+  chatLoading: false
 };
 
 const els = {
@@ -52,7 +57,16 @@ const els = {
   imageModal: document.querySelector('#imageModal'),
   modalImage: document.querySelector('#modalImage'),
   modalClose: document.querySelector('#modalClose'),
-  toast: document.querySelector('#toast')
+  toast: document.querySelector('#toast'),
+  modeToggle: document.querySelector('#modeToggle'),
+  expertPanel: document.querySelector('#expertPanel'),
+  agentPanel: document.querySelector('#agentPanel'),
+  chatMessages: document.querySelector('#chatMessages'),
+  chatInput: document.querySelector('#chatInput'),
+  chatSendBtn: document.querySelector('#chatSendBtn'),
+  chatInputBar: document.querySelector('#chatInputBar'),
+  agentRoomInput: document.querySelector('#agentRoomInput'),
+  agentSofaInput: document.querySelector('#agentSofaInput')
 };
 
 const virtualStyleDescriptions = {
@@ -475,9 +489,10 @@ function renderHistory() {
 }
 
 function getVirtualRoomAnalysis() {
-  const styleDescription = virtualStyleDescriptions[state.virtualStyle] || virtualStyleDescriptions.现代简约;
+  const styleDescription = virtualStyleDescriptions[state.virtualStyle]
+    || `自定义风格：${state.virtualStyle}。根据风格名称的理解，生成符合该描述的室内房间设计。`;
   return [
-    `虚拟房间模式：用户未上传房间图片，需要根据“${state.virtualStyle}”创建一个新的虚拟室内房间。`,
+    `虚拟房间模式：用户未上传房间图片，需要根据”${state.virtualStyle}”创建一个新的虚拟室内房间。`,
     styleDescription,
     '房间必须包含自然采光来源，例如窗户、落地窗、阳台门或阳台区域；单人沙发必须摆放在窗边或阳台采光区，并且不能遮挡主要通道、门窗、柜体或关键家具。',
     '房间背景可以包含符合该风格的必要墙面、地面、窗帘、灯光、柜体或少量软装，但不能改变用户上传沙发的外形、颜色、材质和比例。'
@@ -516,6 +531,595 @@ function addHistoryItem(payload) {
   });
   state.history = state.history.slice(0, 12);
   renderHistory();
+}
+
+/* ===================================================================
+   Agent Mode — Chat Engine
+   =================================================================== */
+
+let chatMsgId = 0;
+
+function nextChatId() {
+  chatMsgId += 1;
+  return `msg-${chatMsgId}`;
+}
+
+function addChatMessage(role, type, content, extra = {}) {
+  state.chatMessages.push({
+    id: nextChatId(),
+    role,
+    type,
+    content,
+    ...extra,
+    timestamp: Date.now()
+  });
+}
+
+function removeChatLoading() {
+  state.chatMessages = state.chatMessages.filter(function (m) { return m.type !== 'loading'; });
+  state.chatLoading = false;
+}
+
+function addChatLoading(content) {
+  removeChatLoading();
+  state.chatLoading = true;
+  state.chatMessages.push({
+    id: nextChatId(),
+    role: 'assistant',
+    type: 'loading',
+    content: content || '正在思考…',
+    timestamp: Date.now()
+  });
+}
+
+function scrollChatToBottom() {
+  var container = els.chatMessages;
+  if (container) {
+    requestAnimationFrame(function () {
+      container.scrollTop = container.scrollHeight;
+    });
+  }
+}
+
+function formatTime(ts) {
+  var d = new Date(ts);
+  var h = d.getHours();
+  var m = d.getMinutes();
+  return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+}
+
+function escapeHtml(text) {
+  var div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatContent(text) {
+  return escapeHtml(text)
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+function renderChatMessages() {
+  if (!els.chatMessages) return;
+  els.chatMessages.innerHTML = '';
+
+  state.chatMessages.forEach(function (msg) {
+    var row = document.createElement('div');
+    row.className = 'msg-row msg--' + msg.role;
+    if (msg.type === 'error') {
+      row.className += ' msg--error';
+    }
+    if (msg.type === 'loading') {
+      row.className += ' msg--loading';
+    }
+
+    // 头像
+    var avatar = document.createElement('div');
+    avatar.className = 'msg-avatar';
+    if (msg.role === 'assistant') {
+      avatar.textContent = '🤖';
+    } else {
+      avatar.textContent = '👤';
+    }
+
+    // 消息体（气泡 + 时间）
+    var body = document.createElement('div');
+    body.className = 'msg-body';
+
+    var bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+
+    if (msg.type === 'loading') {
+      bubble.innerHTML = '<div class="typing-dots"><i></i><i></i><i></i></div>';
+    } else if (msg.type === 'text' || msg.type === 'error') {
+      bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
+    } else if (msg.type === 'options') {
+      bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
+      if (msg.options && msg.options.length) {
+        var chips = document.createElement('div');
+        chips.className = 'chat-chips';
+        msg.options.forEach(function (opt) {
+          var chip = document.createElement('button');
+          chip.className = 'chat-chip';
+          chip.type = 'button';
+          chip.textContent = opt.label;
+          chip.dataset.action = opt.action;
+          chip.dataset.payload = opt.payload || '';
+          chips.appendChild(chip);
+        });
+        bubble.appendChild(chips);
+      }
+    } else if (msg.type === 'image-upload') {
+      bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
+      var zone = document.createElement('div');
+      zone.className = 'chat-upload-zone';
+      zone.dataset.target = msg.target || '';
+      zone.innerHTML =
+        '<span class="upload-icon-inline">+</span>' +
+        '<strong>' + escapeHtml(msg.uploadLabel || '点击上传图片') + '</strong>' +
+        '<small>' + escapeHtml(msg.uploadHint || '支持 JPG、PNG、WebP，最大 20MB') + '</small>';
+      bubble.appendChild(zone);
+    } else if (msg.type === 'image-preview') {
+      bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
+      if (msg.imageUrl) {
+        var preview = document.createElement('div');
+        preview.className = 'chat-image-preview';
+        var img = document.createElement('img');
+        img.src = msg.imageUrl;
+        img.alt = '上传的图片预览';
+        img.addEventListener('click', function () {
+          openHistoryPreview(msg.imageUrl);
+        });
+        preview.appendChild(img);
+        bubble.appendChild(preview);
+      }
+    } else if (msg.type === 'result-card') {
+      bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
+      if (msg.imageUrl) {
+        var card = document.createElement('div');
+        card.className = 'result-card';
+        var cardImg = document.createElement('img');
+        cardImg.src = msg.imageUrl;
+        cardImg.alt = '生成效果图';
+        cardImg.addEventListener('click', function () {
+          openHistoryPreview(msg.imageUrl);
+        });
+        card.appendChild(cardImg);
+
+        var footer = document.createElement('div');
+        footer.className = 'result-card-footer';
+        var meta = document.createElement('span');
+        meta.className = 'result-meta';
+        meta.textContent = msg.meta || '';
+        var dl = document.createElement('a');
+        dl.className = 'download-link-inline';
+        dl.href = msg.imageUrl;
+        dl.download = 'sofa-placement.png';
+        dl.textContent = '⬇ 下载图片';
+        dl.addEventListener('click', function (e) { e.stopPropagation(); });
+        footer.appendChild(meta);
+        footer.appendChild(dl);
+        card.appendChild(footer);
+        bubble.appendChild(card);
+      }
+    }
+
+    body.appendChild(bubble);
+
+    if (msg.type !== 'loading') {
+      var time = document.createElement('div');
+      time.className = 'msg-time';
+      time.textContent = formatTime(msg.timestamp);
+      body.appendChild(time);
+    }
+
+    row.appendChild(avatar);
+    row.appendChild(body);
+    els.chatMessages.appendChild(row);
+  });
+
+  scrollChatToBottom();
+}
+
+/* ===================================================================
+   Agent Mode — Guided Flow Engine
+   =================================================================== */
+
+function isAgentStepDone() {
+  return state.agentStep === 'done';
+}
+
+function getCurrentAgentContext() {
+  return {
+    hasRoom: Boolean(state.roomAnalysis),
+    hasSofa: Boolean(state.sofaAnalysis && state.sofaFile),
+    roomMode: state.roomMode,
+    hasRoomFile: Boolean(state.roomFile),
+    hasSofaFile: Boolean(state.sofaFile),
+    paramsSet: true
+  };
+}
+
+function handleAgentOptionClick(action, payload, skipUserMessage, userLabel) {
+  if (state.chatLoading) return;
+
+  if (!skipUserMessage) {
+    addChatMessage('user', 'text', userLabel || payload || action);
+  }
+
+  switch (action) {
+    case 'pick-room-source':
+      if (payload === 'upload') {
+        state.roomMode = 'upload';
+        state.roomAnalysis = '';
+        state.roomFile = null;
+        if (state.agentStep === 'awaiting-room-source') {
+          addChatMessage('assistant', 'image-upload',
+            '好的，请上传你的**房间照片** 📷\n\n我会分析空间布局、采光和适合摆放沙发的位置。',
+            { target: 'agentRoomInput', uploadLabel: '点击上传房间照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+          state.agentStep = 'awaiting-room-upload';
+        } else {
+          addChatMessage('assistant', 'image-upload',
+            '好的，切换为**上传真实房间照片**模式 📷\n\n请重新上传房间照片，我会重新分析。',
+            { target: 'agentRoomInput', uploadLabel: '点击上传房间照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+          state.agentStep = 'awaiting-room-upload';
+        }
+      } else if (payload === 'virtual') {
+        state.roomMode = 'virtual';
+        state.roomAnalysis = '';
+        state.roomFile = null;
+        addChatMessage('assistant', 'options',
+          '好的，请选择一个你喜欢的**虚拟房间风格** 🏠',
+          {
+            options: [
+              { label: '现代简约', action: 'pick-style', payload: '现代简约' },
+              { label: '北欧风', action: 'pick-style', payload: '北欧风' },
+              { label: '新中式', action: 'pick-style', payload: '新中式' },
+              { label: '奶油风', action: 'pick-style', payload: '奶油风' },
+              { label: '寂宅风', action: 'pick-style', payload: '寂宅风' },
+              { label: '轻奢风', action: 'pick-style', payload: '轻奢风' }
+            ]
+          });
+        state.agentStep = 'awaiting-style-select';
+      }
+      break;
+
+    case 'pick-style':
+      state.virtualStyle = payload;
+      state.roomAnalysis = getVirtualRoomAnalysis();
+      if (state.agentStep === 'awaiting-style-select') {
+        addChatMessage('assistant', 'text',
+          '✅ 已选择 **' + payload + '** 风格。\n\n接下来请上传你的**沙发图片** 🛋️，我会分析沙发的外形、材质和颜色。');
+        addChatMessage('assistant', 'image-upload',
+          '请上传沙发照片',
+          { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+        state.agentStep = 'awaiting-sofa-upload';
+      } else {
+        addChatMessage('assistant', 'text',
+          '✅ 已切换为 **' + payload + '** 风格，房间分析已更新。');
+        addChatMessage('assistant', 'image-upload',
+          '请上传沙发照片 🛋️',
+          { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+      }
+      break;
+
+    case 'pick-custom-style':
+      state.virtualStyle = payload;
+      state.roomAnalysis = getVirtualRoomAnalysis();
+      addChatMessage('assistant', 'text',
+        '✅ 已选择自定义风格 **' + payload + '**。\n\n接下来请上传你的**沙发图片** 🛋️。');
+      addChatMessage('assistant', 'image-upload',
+        '请上传沙发照片',
+        { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+      state.agentStep = 'awaiting-sofa-upload';
+      break;
+
+    case 'pick-scene':
+    case 'pick-model':
+    case 'pick-resolution':
+    case 'pick-ratio':
+    case 'pick-custom-model':
+      handleParamSelect(action, payload);
+      break;
+
+    case 'generate':
+      handleAgentGenerate();
+      break;
+
+    case 'restart':
+      resetAgentChat();
+      break;
+
+    default:
+      addChatMessage('assistant', 'text', '收到你的消息。请按上方的选项继续操作，或者切换回「专家模式」使用完整参数面板。');
+      break;
+  }
+
+  renderChatMessages();
+}
+
+function handleParamSelect(action, payload) {
+  switch (action) {
+    case 'pick-scene':
+      state.scene = payload;
+      addChatMessage('assistant', 'text', '✅ 场景图：**' + payload + '**');
+      askModelOption();
+      break;
+    case 'pick-model':
+      state.needsModel = payload === 'true';
+      state.modelDescription = '';
+      addChatMessage('assistant', 'text', '✅ 模特：**' + (state.needsModel ? '需要' : '不需要') + '**');
+      askResolutionOption();
+      break;
+    case 'pick-custom-model':
+      state.needsModel = true;
+      state.modelDescription = payload;
+      addChatMessage('assistant', 'text', '✅ 模特：**' + payload + '**');
+      askResolutionOption();
+      break;
+    case 'pick-resolution':
+      state.resolution = payload;
+      addChatMessage('assistant', 'text', '✅ 清晰度：**' + payload + '**');
+      askRatioOption();
+      break;
+    case 'pick-ratio':
+      state.ratio = payload;
+      addChatMessage('assistant', 'text', '✅ 比例：**' + payload + '**');
+      var summary = '✅ 参数已全部确认：\n\n' +
+        '• 场景图：**' + state.scene + '**\n' +
+        '• 模特：**' + (state.needsModel ? '需要' : '不需要') + '**\n' +
+        '• 清晰度：**' + state.resolution + '**\n' +
+        '• 比例：**' + state.ratio + '**\n\n' +
+        '一切就绪！点击下方按钮开始生成 👇';
+      addChatMessage('assistant', 'options', summary, {
+        options: [
+          { label: '🚀 开始生成效果图', action: 'generate', payload: '' }
+        ]
+      });
+      state.agentStep = 'ready-to-generate';
+      break;
+  }
+}
+
+async function handleAgentGenerate() {
+  var hasRoomContext = state.roomMode === 'virtual'
+    ? Boolean(state.roomAnalysis && state.virtualStyle)
+    : Boolean(state.roomFile && state.roomAnalysis);
+
+  if (!hasRoomContext || !state.sofaFile || !state.sofaAnalysis) {
+    addChatMessage('assistant', 'error', '⚠️ 请先完成房间和沙发分析再生成。');
+    renderChatMessages();
+    return;
+  }
+
+  addChatLoading('正在校验积分…');
+  renderChatMessages();
+
+  if (!(await ensureCreditsAvailable())) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ 积分不足，无法执行该操作。请充值后重试。');
+    renderChatMessages();
+    return;
+  }
+
+  removeChatLoading();
+  addChatLoading('正在生成效果图…这可能需要 30-60 秒 ⏳');
+  renderChatMessages();
+
+  var formData = new FormData();
+  if (state.roomMode === 'upload') {
+    formData.append('roomImage', state.roomFile);
+  }
+  formData.append('sofaImage', state.sofaFile);
+  formData.append('roomMode', state.roomMode);
+  formData.append('virtualStyle', state.virtualStyle);
+  formData.append('roomAnalysis', state.roomAnalysis);
+  formData.append('sofaAnalysis', state.sofaAnalysis);
+  formData.append('scene', state.scene);
+  formData.append('needsModel', String(state.needsModel));
+  formData.append('modelDescription', state.modelDescription || '');
+  formData.append('resolution', state.resolution);
+  formData.append('ratio', state.ratio);
+
+  try {
+    var payload = await postForm('/api/generate', formData);
+
+    removeChatLoading();
+    await consumeCredits();
+
+    try {
+      await uploadGeneratedImage(payload.image);
+    } catch (uploadError) {
+      // non-fatal
+    }
+
+    addChatMessage('assistant', 'result-card',
+      '🎉 效果图已生成！以下是你的沙发摆放方案：',
+      { imageUrl: payload.image, meta: getParamsLabel() });
+
+    addChatMessage('assistant', 'options',
+      '还需要生成其他方案吗？',
+      {
+        options: [
+          { label: '🔄 重新开始', action: 'restart', payload: '' },
+          { label: '⚙️ 切换到专家模式', action: 'switch-expert', payload: '' }
+        ]
+      });
+
+    addHistoryItem(payload);
+    state.agentStep = 'done';
+  } catch (error) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ 生成失败：' + escapeHtml(error.message));
+  }
+
+  renderChatMessages();
+}
+
+async function handleAgentFileUpload(target, file) {
+  if (!file) return;
+
+  try {
+    var prepared = await prepareToolImage(file);
+
+    if (target === 'agentRoomInput') {
+      state.roomFile = prepared;
+      var previewUrl = URL.createObjectURL(file);
+      addChatMessage('user', 'image-preview', '已上传房间照片', { imageUrl: previewUrl });
+
+      addChatLoading('正在分析房间…');
+      renderChatMessages();
+
+      if (!(await ensureCreditsAvailable())) {
+        removeChatLoading();
+        addChatMessage('assistant', 'error', '❌ 积分不足，无法执行该操作。请充值后重试。');
+        renderChatMessages();
+        return;
+      }
+
+      var roomPayload = await postForm('/api/analyze-room', makeImageForm('image', state.roomFile));
+      state.roomAnalysis = roomPayload.analysis || '模型没有返回文字分析。';
+
+      removeChatLoading();
+      addChatMessage('assistant', 'text',
+        '✅ 房间分析完成！\n\n' +
+        '接下来请上传你的**沙发图片** 🛋️，我会分析沙发的外形、材质和颜色。');
+      addChatMessage('assistant', 'image-upload',
+        '请上传沙发照片',
+        { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+      state.agentStep = 'awaiting-sofa-upload';
+    } else if (target === 'agentSofaInput') {
+      state.sofaFile = prepared;
+      var sofaPreviewUrl = URL.createObjectURL(file);
+      addChatMessage('user', 'image-preview', '已上传沙发照片', { imageUrl: sofaPreviewUrl });
+
+      addChatLoading('正在分析沙发…');
+      renderChatMessages();
+
+      var sofaPayload = await postForm('/api/analyze-sofa', makeImageForm('image', state.sofaFile));
+      state.sofaAnalysis = sofaPayload.analysis || '模型没有返回文字分析。';
+
+      removeChatLoading();
+      addChatMessage('assistant', 'text', '✅ 沙发分析完成！');
+      showParamOptions();
+      state.agentStep = 'awaiting-params';
+    }
+
+    renderChatMessages();
+  } catch (error) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ ' + escapeHtml(error.message));
+    renderChatMessages();
+  }
+}
+
+function showParamOptions() {
+  askSceneOption();
+}
+
+function askSceneOption() {
+  addChatMessage('assistant', 'options',
+    '请选择**场景图类型**（远景 / 中近景 / 近景）：',
+    {
+      options: [
+        { label: '🏞️ 远景图', action: 'pick-scene', payload: '远景图' },
+        { label: '📐 中近景', action: 'pick-scene', payload: '中近景' },
+        { label: '🔍 近景', action: 'pick-scene', payload: '近景' }
+      ]
+    });
+}
+
+function askModelOption() {
+  addChatMessage('assistant', 'options',
+    '是否需要**模特**入镜？你也可以直接描述想要的模特，比如"亚裔女模特"、"欧美男模特"等。',
+    {
+      options: [
+        { label: '👤 需要模特', action: 'pick-model', payload: 'true' },
+        { label: '🚫 不需要', action: 'pick-model', payload: 'false' }
+      ]
+    });
+}
+
+function askResolutionOption() {
+  addChatMessage('assistant', 'options',
+    '请选择**清晰度**：',
+    {
+      options: [
+        { label: '1K', action: 'pick-resolution', payload: '1K' },
+        { label: '2K', action: 'pick-resolution', payload: '2K' },
+        { label: '4K', action: 'pick-resolution', payload: '4K' }
+      ]
+    });
+}
+
+function askRatioOption() {
+  addChatMessage('assistant', 'options',
+    '请选择**画面比例**：',
+    {
+      options: [
+        { label: '4:3 横版', action: 'pick-ratio', payload: '4:3' },
+        { label: '3:4 竖版', action: 'pick-ratio', payload: '3:4' }
+      ]
+    });
+}
+
+function resetAgentChat() {
+  state.chatMessages = [];
+  state.agentStep = 'welcome';
+  state.chatLoading = false;
+  initAgentChat();
+}
+
+function initAgentChat() {
+  if (state.chatMessages.length > 0) return;
+
+  addChatMessage('assistant', 'text',
+    '你好！我是你的 **AI 沙发摆放助手** 🛋️\n\n我会一步步帮你完成沙发摆放效果图的制作。首先，请选择房间来源：');
+
+  addChatMessage('assistant', 'options',
+    '请选择：',
+    {
+      options: [
+        { label: '📷 上传房间照片', action: 'pick-room-source', payload: 'upload' },
+        { label: '🏠 虚拟房间', action: 'pick-room-source', payload: 'virtual' }
+      ]
+    });
+
+  state.agentStep = 'awaiting-room-source';
+  renderChatMessages();
+}
+
+/* ===================================================================
+   Agent Mode — Mode Switching
+   =================================================================== */
+
+function switchMode(mode) {
+  if (mode === state.mode) return;
+  hideSplash();
+  enterMode(mode);
+}
+
+function syncExpertToAgent() {
+  if (state.roomAnalysis && state.sofaAnalysis && state.sofaFile) {
+    addChatMessage('assistant', 'text',
+      '📋 已从专家模式同步你的进度。\n\n' +
+      '• 房间模式：**' + (state.roomMode === 'virtual' ? '虚拟' + state.virtualStyle : '上传房间') + '**\n' +
+      '• 房间和沙发分析已完成 ✅\n\n' +
+      '接下来请确认生成参数：');
+    showParamOptions();
+    state.agentStep = 'awaiting-params';
+  } else if (state.roomAnalysis) {
+    addChatMessage('assistant', 'text',
+      '📋 已从专家模式同步你的进度。\n\n• 房间分析已完成 ✅\n\n接下来请上传沙发图片 🛋️');
+    addChatMessage('assistant', 'image-upload',
+      '请上传沙发照片',
+      { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+    state.agentStep = 'awaiting-sofa-upload';
+  } else {
+    initAgentChat();
+  }
+  renderChatMessages();
 }
 
 els.roomInput.addEventListener('change', async () => {
@@ -619,6 +1223,7 @@ els.generateBtn.addEventListener('click', async () => {
   formData.append('sofaAnalysis', state.sofaAnalysis);
   formData.append('scene', state.scene);
   formData.append('needsModel', String(state.needsModel));
+  formData.append('modelDescription', state.modelDescription || '');
   formData.append('resolution', state.resolution);
   formData.append('ratio', state.ratio);
 
@@ -747,3 +1352,262 @@ initSaasFromUrl();
 loadSaasLaunch();
 
 updateRoomModeUI();
+
+/* ===================================================================
+   Agent Mode — Event Handlers
+   =================================================================== */
+
+document.querySelector('#expertToAgent')?.addEventListener('click', function () {
+  switchMode('agent');
+});
+
+document.querySelector('#topbarToAgent')?.addEventListener('click', function () {
+  switchMode('agent');
+});
+
+document.querySelector('#topbarToExpert')?.addEventListener('click', function () {
+  switchMode('expert');
+});
+
+var chatNewBtn = document.querySelector('#chatNewBtn');
+if (chatNewBtn) {
+  chatNewBtn.addEventListener('click', function () {
+    resetAgentChat();
+    renderChatMessages();
+  });
+}
+
+function parseUserInput(text) {
+  var t = text.replace(/\s+/g, '').toLowerCase();
+  var step = state.agentStep;
+
+  // 全局命令 — 随时可用
+  if (/专家|切换/.test(t)) return { action: 'switch-expert', payload: '' };
+  if (/重新|再来|重来|从头/.test(t)) return { action: 'restart', payload: '' };
+
+  // 房间来源 — 随时可切换
+  if (/上传房间|拍照|真实|实拍|房间照片|本地上传/.test(t)) {
+    if (state.roomMode !== 'upload' || step === 'awaiting-room-source') {
+      return { action: 'pick-room-source', payload: 'upload' };
+    }
+  }
+  if (/虚拟房间|虚拟|生成房间/.test(t)) {
+    if (state.roomMode !== 'virtual' || step === 'awaiting-room-source') {
+      return { action: 'pick-room-source', payload: 'virtual' };
+    }
+  }
+
+  // 风格选择 — 随时可切换（虚拟房间模式下）
+  if (state.roomMode === 'virtual' || step === 'awaiting-style-select') {
+    if (/现代简约/.test(t)) return { action: 'pick-style', payload: '现代简约' };
+    if (/北欧风?$|北欧(?!房间)/.test(t)) return { action: 'pick-style', payload: '北欧风' };
+    if (/新中式/.test(t)) return { action: 'pick-style', payload: '新中式' };
+    if (/奶油风/.test(t)) return { action: 'pick-style', payload: '奶油风' };
+    if (/寂宅风|侘寂/.test(t)) return { action: 'pick-style', payload: '寂宅风' };
+    if (/轻奢风/.test(t)) return { action: 'pick-style', payload: '轻奢风' };
+    // 如果是虚拟模式且在选风格步骤，没有匹配到预设，视为自定义风格
+    if (step === 'awaiting-style-select' && text.length > 0 && text.length < 30) {
+      return { action: 'pick-custom-style', payload: text };
+    }
+  }
+
+  // 按步骤匹配
+  if (step === 'awaiting-room-source') {
+    if (/上传|拍照|真实|实拍|房间照片/.test(t)) return { action: 'pick-room-source', payload: 'upload' };
+    if (/虚拟|生成/.test(t)) return { action: 'pick-room-source', payload: 'virtual' };
+  }
+
+  if (step === 'awaiting-room-upload') {
+    return { action: 'upload-room', payload: '' };
+  }
+
+  if (step === 'awaiting-sofa-upload') {
+    return { action: 'upload-sofa', payload: '' };
+  }
+
+  if (step === 'awaiting-params' || step === 'ready-to-generate' || step === 'awaiting-sofa-upload' || step === 'done') {
+    if (/远景|远景图|全景/.test(t)) return { action: 'pick-scene', payload: '远景图' };
+    if (/中近景/.test(t)) return { action: 'pick-scene', payload: '中近景' };
+    if (/近景(?!图)/.test(t)) return { action: 'pick-scene', payload: '近景' };
+    if (/需要模特|有模特|要模特|带模特|有人/.test(t)) return { action: 'pick-model', payload: 'true' };
+    if (/不要模特|不需要模特|无模特|没人/.test(t)) return { action: 'pick-model', payload: 'false' };
+    // 如果不在参数选择步骤且输入不是预定义关键词，可能是在描述自定义模特
+    if (step === 'awaiting-params' && text.length > 0 && text.length < 40 &&
+        !/远景|中近景|近景|4K|2K|1K|4:3|3:4|横|竖|生成|开始|确认|好了/.test(t)) {
+      return { action: 'pick-custom-model', payload: text };
+    }
+    if (/4K|4k|超清/.test(t)) return { action: 'pick-resolution', payload: '4K' };
+    if (/2K|2k|高清/.test(t)) return { action: 'pick-resolution', payload: '2K' };
+    if (/1K|1k|标清/.test(t)) return { action: 'pick-resolution', payload: '1K' };
+    if (/4:3|横|横版|横图/.test(t)) return { action: 'pick-ratio', payload: '4:3' };
+    if (/3:4|竖|竖版|竖图/.test(t)) return { action: 'pick-ratio', payload: '3:4' };
+    if (/生成|开始|确认|好了|可以|做吧|go|ok|行|好/.test(t)) return { action: 'generate', payload: '' };
+  }
+
+  return null;
+}
+
+function getStepHint() {
+  var hints = {
+    'awaiting-room-source': '请选择房间来源：输入"上传"使用真实照片，或输入"虚拟"创建虚拟房间。',
+    'awaiting-style-select': '请选择你喜欢的风格，例如：现代简约、北欧风、新中式、奶油风、寂宅风、轻奢风。',
+    'awaiting-room-upload': '请上传一张房间照片，点击上方上传区域或直接拖拽图片。',
+    'awaiting-sofa-upload': '请上传一张沙发照片，点击上方上传区域或直接拖拽图片。',
+    'awaiting-params': '请选择参数，例如："远景图"、"需要模特"、"4K"、"4:3横版"，然后说"开始生成"。',
+    'ready-to-generate': '参数已就绪！输入"生成"开始，或继续调整参数。',
+    'done': '效果图已生成！输入"重新开始"再来一次，或"切换专家模式"。'
+  };
+  return hints[state.agentStep] || '请按上方选项继续操作，或输入"切换专家模式"使用完整参数面板。';
+}
+
+els.chatSendBtn.addEventListener('click', function () {
+  var text = els.chatInput.value.trim();
+  if (!text || state.chatLoading) return;
+
+  addChatMessage('user', 'text', text);
+  els.chatInput.value = '';
+  els.chatInput.style.height = 'auto';
+
+  var parsed = parseUserInput(text);
+
+  if (parsed) {
+    if (parsed.action === 'switch-expert') {
+      switchMode('expert');
+      renderChatMessages();
+      return;
+    }
+    if (parsed.action === 'upload-room') {
+      els.agentRoomInput.click();
+      renderChatMessages();
+      return;
+    }
+    if (parsed.action === 'upload-sofa') {
+      els.agentSofaInput.click();
+      renderChatMessages();
+      return;
+    }
+    handleAgentOptionClick(parsed.action, parsed.payload, true);
+  } else {
+    addChatMessage('assistant', 'text', '我没有理解你的意思 🤔\n\n' + getStepHint());
+    renderChatMessages();
+  }
+});
+
+els.chatInput.addEventListener('keydown', function (event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    els.chatSendBtn.click();
+  }
+});
+
+els.chatInput.addEventListener('input', function () {
+  els.chatInput.style.height = 'auto';
+  els.chatInput.style.height = els.chatInput.scrollHeight + 'px';
+});
+
+els.chatMessages.addEventListener('click', function (event) {
+  var chip = event.target.closest('.chat-chip');
+  if (chip) {
+    event.preventDefault();
+    var action = chip.dataset.action;
+    var payload = chip.dataset.payload;
+
+    if (action === 'switch-expert') {
+      switchMode('expert');
+      return;
+    }
+
+    chip.classList.add('is-selected');
+    handleAgentOptionClick(action, payload, false, chip.textContent.trim());
+    return;
+  }
+
+  var zone = event.target.closest('.chat-upload-zone');
+  if (zone) {
+    event.preventDefault();
+    var target = zone.dataset.target;
+    if (target === 'agentRoomInput') {
+      els.agentRoomInput.click();
+    } else if (target === 'agentSofaInput') {
+      els.agentSofaInput.click();
+    }
+    return;
+  }
+});
+
+els.agentRoomInput.addEventListener('change', async function () {
+  var file = els.agentRoomInput.files?.[0];
+  if (!file) return;
+  await handleAgentFileUpload('agentRoomInput', file);
+  els.agentRoomInput.value = '';
+});
+
+els.agentSofaInput.addEventListener('change', async function () {
+  var file = els.agentSofaInput.files?.[0];
+  if (!file) return;
+  await handleAgentFileUpload('agentSofaInput', file);
+  els.agentSofaInput.value = '';
+});
+
+var modeSplash = document.querySelector('#modeSplash');
+
+function showSplash() {
+  if (modeSplash) modeSplash.hidden = false;
+  els.expertPanel.hidden = true;
+  els.agentPanel.hidden = true;
+}
+
+function hideSplash() {
+  if (modeSplash) modeSplash.hidden = true;
+}
+
+function enterMode(mode) {
+  hideSplash();
+  state.mode = mode;
+
+  var topbarToExpert = document.querySelector('#topbarToExpert');
+  var topbarToAgent = document.querySelector('#topbarToAgent');
+  if (mode === 'agent') {
+    els.expertPanel.hidden = true;
+    els.agentPanel.hidden = false;
+    els.agentPanel.classList.add('is-active');
+    if (topbarToExpert) topbarToExpert.hidden = false;
+    if (topbarToAgent) topbarToAgent.hidden = true;
+    if (state.chatMessages.length === 0) {
+      initAgentChat();
+    } else {
+      renderChatMessages();
+    }
+    scrollChatToBottom();
+  } else {
+    els.agentPanel.hidden = true;
+    els.agentPanel.classList.remove('is-active');
+    els.expertPanel.hidden = false;
+    if (topbarToExpert) topbarToExpert.hidden = true;
+    if (topbarToAgent) topbarToAgent.hidden = false;
+    updateRoomModeUI();
+    if (state.sofaFile) els.analyzeSofaBtn.disabled = false;
+    if (state.roomAnalysis) { els.roomAnalysisBox.textContent = state.roomAnalysis; els.roomAnalysisBox.hidden = false; }
+    if (state.sofaAnalysis) { els.sofaAnalysisBox.textContent = state.sofaAnalysis; els.sofaAnalysisBox.hidden = false; }
+    if (state.roomAnalysis && state.sofaAnalysis) goToStep(3);
+    else if (state.roomAnalysis) goToStep(2);
+    else goToStep(1);
+  }
+}
+
+// 初始显示模式选择页
+showSplash();
+
+// 模式选择页点击
+if (modeSplash) {
+  modeSplash.addEventListener('click', function (event) {
+    var btn = event.target.closest('.splash-card-item');
+    if (!btn) return;
+    enterMode(btn.dataset.mode);
+  });
+}
+
+document.querySelector('.hero-link')?.addEventListener('click', function (e) {
+  e.preventDefault();
+  enterMode('expert');
+});

@@ -449,6 +449,7 @@ async function handleGenerate(req, res) {
   const isVirtualRoom = roomMode === 'virtual';
   const scene = fields.scene || '远景图';
   const needsModel = fields.needsModel === 'true' || scene === '模特';
+  const modelDescription = fields.modelDescription || '';
   const resolution = fields.resolution || '1K';
   const ratio = fields.ratio || '4:3';
   const virtualStyleInstructions = {
@@ -459,7 +460,8 @@ async function handleGenerate(req, res) {
     寂宅风: '寂宅风虚拟房间：安静留白、微水泥或自然肌理、低饱和色彩、克制家具和沉静空间感。',
     轻奢风: '轻奢风虚拟房间：精致材质、金属或石材点缀、干净高级的线条、明亮通透但不过度堆砌。'
   };
-  const selectedStyleInstruction = virtualStyleInstructions[virtualStyle] || virtualStyleInstructions.现代简约;
+  const selectedStyleInstruction = virtualStyleInstructions[virtualStyle]
+    || `自定义风格"${virtualStyle}"：根据风格名称的理解，生成符合该描述的室内房间设计，包括合适的墙面、地面、窗户、采光、配色、材质和软装氛围。`;
   const globalRules = isVirtualRoom
     ? [
         `最高优先级全局规则：当前为虚拟房间模式，用户未上传房间图片。以下 4 条规则适用于所有生成图片，无论用户选择远景图、中近景还是近景，都必须严格遵守；后续所有场景视角、构图、模特、比例和美化要求都不能覆盖这 4 条。`,
@@ -494,7 +496,9 @@ async function handleGenerate(req, res) {
     ...globalRules,
     `视角解释：本次用户选择的“${scene}”只表示最终效果图的镜头视角、取景范围、焦距感和构图远近，不表示沙发要摆在远处、中间或近处，也不表示对房间图片做简单放大、裁切或缩小。无论选择远景、中近景还是近景，沙发的唯一合法落位都是窗边、落地窗边、阳台门边或阳台区域内有阳光/自然光的位置。切换场景时可以切换相机机位和镜头视角，${isVirtualRoom ? '虚拟房间没有上传机位，可以自由选择最适合展示沙发的机位' : '不必完全按照用户上传房间图片的原始机位'}，但必须找到最适合展示沙发正面的机位。尤其选择中近景或近景时，只能通过把镜头拉近、改变相机机位、调整焦距或收紧取景范围来形成更近的画面效果，严格禁止把沙发往近处放、往画面前景挪、放到房间中央或放到任何不在窗边/阳台采光区的位置。可以为了更好展示沙发而改变拍摄机位、镜头朝向、相机高度、焦距和取景范围；近景不必完全按照原始机位，只要生成出的房间布局逻辑、装修风格、材质、采光方向和整体空间关系与${isVirtualRoom ? '所选虚拟房间风格' : '用户房间'}保持一致。`,
     needsModel
-      ? '模特图规则：用户选择需要模特，模特必须真实坐在沙发上，身体重量要落在坐垫上，臀部、大腿和沙发坐面之间要有明确接触关系，姿态要符合坐姿，不能站在旁边、靠在旁边、坐在扶手上、漂浮在沙发上方，或者只是出现在沙发附近。'
+      ? (modelDescription
+        ? `模特图规则：用户指定模特为"${modelDescription}"，必须在画面中加入一位符合该描述的真实模特，模特必须真实坐在沙发上，身体重量要落在坐垫上，臀部、大腿和沙发坐面之间要有明确接触关系，姿态要符合坐姿，不能站在旁边、靠在旁边、坐在扶手上、漂浮在沙发上方，或者只是出现在沙发附近。`
+        : '模特图规则：用户选择需要模特，模特必须真实坐在沙发上，身体重量要落在坐垫上，臀部、大腿和沙发坐面之间要有明确接触关系，姿态要符合坐姿，不能站在旁边、靠在旁边、坐在扶手上、漂浮在沙发上方，或者只是出现在沙发附近。')
       : '模特图规则：用户选择不需要模特，画面中不要添加人物或人体局部。',
     isVirtualRoom
       ? `生成原则：当前没有用户上传的房间图片，必须按“${virtualStyle}”重新创建一个真实可信的虚拟室内房间；房间可以包含该风格必要的窗户、阳台、墙面、地面、窗帘、灯光、柜体或少量软装，但必须让用户上传的沙发自然融入其中。`

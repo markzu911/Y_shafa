@@ -19,11 +19,36 @@
         </div>
       </div>
       <div class="topbar-status">
+        <button class="mode-switch-topbar" id="topbarToAgent" type="button" hidden>🤖 切换到智能体</button>
+        <button class="mode-switch-topbar" id="topbarToExpert" type="button" hidden>⚙️ 切换到专家模式</button>
         <div class="status-pill credit-pill" id="creditStatus">积分：--</div>
       </div>
     </header>
 
     <main class="app-shell">
+      <section class="mode-splash" id="modeSplash">
+        <div class="splash-inner">
+          <span class="splash-mark" aria-hidden="true"></span>
+          <p class="eyebrow">选择你的使用方式</p>
+          <h2>你想怎么开始？</h2>
+          <p>选择一种方式，随时可以在应用内切换。</p>
+          <div class="splash-cards">
+            <button class="splash-card-item" data-mode="agent">
+              <span class="splash-icon">🤖</span>
+              <strong>智能体模式</strong>
+              <small>AI 助手一步步引导你完成操作，像聊天一样简单。上传图片、选择风格、调整参数，AI 都会在对话中引导你。</small>
+              <span class="splash-tag">推荐新手</span>
+            </button>
+            <button class="splash-card-item" data-mode="expert">
+              <span class="splash-icon">⚙️</span>
+              <strong>专家模式</strong>
+              <small>直接使用完整参数面板，三步完成：分析房间 · 分析沙发 · 生成效果。适合熟悉流程、想要精细控制的用户。</small>
+              <span class="splash-tag">功能完整</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section class="hero" aria-label="应用介绍">
         <div class="hero-copy">
           <p class="eyebrow">Gemini 室内图像工作流</p>
@@ -39,11 +64,12 @@
 
       </section>
 
+      <div class="expert-panel" id="expertPanel" hidden>
       <section class="workflow-card" id="workflow">
         <div class="section-heading">
           <p class="eyebrow">工作台</p>
           <h2>按顺序完成你的效果图</h2>
-          <p>每一步都会保留分析结果，方便后续生成时准确复用。</p>
+          <p>每一步都会保留分析结果，方便后续生成时准确复用。<button class="mode-switch-link" id="expertToAgent" type="button">🤖 切换到智能体</button></p>
         </div>
 
         <nav class="steps" aria-label="流程">
@@ -212,6 +238,32 @@
           <div class="history-grid" id="historyGrid" aria-label="生成图片历史记录"></div>
         </div>
       </section>
+      </section>
+      </div>
+
+      <section class="agent-panel is-active" id="agentPanel">
+        <div class="chat-card">
+        <div class="chat-header">
+          <span class="chat-header-title">🤖 AI 沙发摆放助手</span>
+          <div class="chat-header-actions">
+            <button class="chat-new-btn" id="chatNewBtn" type="button" aria-label="开始新对话">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              新对话
+            </button>
+          </div>
+        </div>
+        <div class="chat-window">
+          <div class="chat-messages" id="chatMessages" aria-live="polite" aria-label="对话消息"></div>
+        </div>
+        <div class="chat-input-bar" id="chatInputBar">
+          <input class="chat-file-input" id="agentRoomInput" type="file" accept="image/*" hidden />
+          <input class="chat-file-input" id="agentSofaInput" type="file" accept="image/*" hidden />
+          <textarea class="chat-textarea" id="chatInput" placeholder="输入消息，或点击上方选项…" rows="1" aria-label="聊天输入框"></textarea>
+          <button class="chat-send-btn" id="chatSendBtn" type="button" aria-label="发送消息">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+        </div>
       </section>
     </main>
 
