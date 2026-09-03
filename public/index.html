@@ -494,7 +494,7 @@
         <section class="panel" data-poster-step="2">
           <div class="copy">
             <h2>选择生成参数</h2>
-            <p>未上传参考海报时，AI 会加入纵向与横向图标卖点模块；上传参考海报时跟随参考版式。</p>
+            <p>可填写简短创意需求；未上传参考海报时由 AI 自由构图，上传后结合参考版式生成。</p>
           </div>
 
           <div class="controls-grid poster-controls-grid">
@@ -522,6 +522,21 @@
                 <button data-value="1:1">1:1 方图</button>
                 <button data-value="4:3">4:3 横版</button>
               </div>
+            </fieldset>
+
+            <fieldset class="poster-prompt-field">
+              <legend>创意提示词 <span class="optional-label">可选</span></legend>
+              <label class="poster-prompt-control" for="posterPromptInput">
+                <textarea
+                  id="posterPromptInput"
+                  maxlength="100"
+                  rows="3"
+                  placeholder="例如：做一张 618 活动海报，热烈但有高级感"
+                  aria-label="创意提示词"
+                  aria-describedby="posterPromptCount"
+                ></textarea>
+                <small id="posterPromptCount" aria-live="polite">0 / 100</small>
+              </label>
             </fieldset>
 
             <fieldset class="poster-price-field">
@@ -644,6 +659,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <script src="/app.js?v=20260903-product-reference" type="module"></script>
+    <script src="/app.js?v=20260903-poster-prompt" type="module"></script>
   </body>
 </html>

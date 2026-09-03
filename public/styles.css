@@ -968,6 +968,7 @@ h2 {
 
 .product-view-field,
 .poster-ratio-field,
+.poster-prompt-field,
 .poster-price-field,
 .poster-reference-field {
   grid-column: 1 / -1;
@@ -978,6 +979,52 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.poster-prompt-control {
+  position: relative;
+  display: block;
+}
+
+.poster-prompt-control textarea {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid rgba(93, 62, 37, 0.16);
+  border-radius: 14px;
+  outline: 0;
+  padding: 14px 16px 34px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+  letter-spacing: 0;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.poster-prompt-control textarea:focus {
+  border-color: rgba(184, 101, 63, 0.5);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(184, 101, 63, 0.12);
+}
+
+.poster-prompt-control textarea::placeholder {
+  color: var(--faint);
+}
+
+.poster-prompt-control small {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
 }
 
 .poster-price-control {
@@ -1163,6 +1210,7 @@ h2 {
 }
 
 fieldset {
+  min-width: 0;
   border: 1px solid rgba(93, 62, 37, 0.14);
   border-radius: 22px;
   padding: 18px;
@@ -1547,6 +1595,7 @@ body.is-modal-open {
 
   .product-view-field,
   .poster-ratio-field,
+  .poster-prompt-field,
   .poster-price-field,
   .poster-reference-field {
     grid-column: auto;

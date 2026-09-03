@@ -28,6 +28,7 @@ const state = {
   posterNeedsModel: false,
   posterResolution: '1K',
   posterRatio: '3:4',
+  posterPrompt: '',
   posterPrice: '',
   posterHistory: [],
   saas: {
@@ -109,6 +110,8 @@ const els = {
   posterReferenceName: document.querySelector('#posterReferenceName'),
   posterReferenceUploadTitle: document.querySelector('#posterReferenceUploadTitle'),
   posterReferenceClearBtn: document.querySelector('#posterReferenceClearBtn'),
+  posterPromptInput: document.querySelector('#posterPromptInput'),
+  posterPromptCount: document.querySelector('#posterPromptCount'),
   posterPriceInput: document.querySelector('#posterPriceInput'),
   generatePosterBtn: document.querySelector('#generatePosterBtn'),
   posterGenerationProgress: document.querySelector('#posterGenerationProgress'),
@@ -1600,6 +1603,15 @@ els.posterReferenceInput.addEventListener('change', async () => {
 
 els.posterReferenceClearBtn.addEventListener('click', clearPosterReference);
 
+els.posterPromptInput.addEventListener('input', () => {
+  const value = Array.from(els.posterPromptInput.value).slice(0, 100).join('');
+  if (value !== els.posterPromptInput.value) {
+    els.posterPromptInput.value = value;
+  }
+  state.posterPrompt = value;
+  els.posterPromptCount.textContent = `${Array.from(value).length} / 100`;
+});
+
 els.posterPriceInput.addEventListener('input', () => {
   const digits = els.posterPriceInput.value.replace(/\D/g, '').slice(0, 8);
   const normalized = digits.replace(/^0+(?=\d)/, '');
@@ -1621,12 +1633,21 @@ els.generatePosterBtn.addEventListener('click', async () => {
   }
   state.posterPrice = posterPrice;
 
+  const posterPrompt = els.posterPromptInput.value.trim();
+  if (Array.from(posterPrompt).length > 100) {
+    showToast('创意提示词最多填写 100 个字符。');
+    els.posterPromptInput.focus();
+    return;
+  }
+  state.posterPrompt = posterPrompt;
+
   const formData = new FormData();
   formData.append('sofaImage', state.posterSofaFile);
   formData.append('sofaAnalysis', state.posterSofaAnalysis);
   formData.append('needsModel', String(state.posterNeedsModel));
   formData.append('resolution', state.posterResolution);
   formData.append('ratio', state.posterRatio);
+  formData.append('prompt', state.posterPrompt);
   formData.append('price', state.posterPrice);
   if (state.posterReferenceFile) {
     formData.append('referenceImage', state.posterReferenceFile);
@@ -1636,18 +1657,23 @@ els.generatePosterBtn.addEventListener('click', async () => {
     setBusy(els.generatePosterBtn, '正在校验积分...', true);
     if (!(await ensureCreditsAvailable())) return;
 
-    setBusy(
-      els.generatePosterBtn,
-      state.posterReferenceFile ? 'AI 正在校验参考海报...' : 'AI 正在策划海报...',
-      true
-    );
+    const planningLabel = state.posterReferenceFile
+      ? 'AI 正在校验参考海报...'
+      : state.posterPrompt
+        ? 'AI 正在理解创意需求...'
+        : 'AI 正在策划海报...';
+    setBusy(els.generatePosterBtn, planningLabel, true);
     els.posterGenerationArea.hidden = true;
     els.posterCopyPreview.hidden = true;
     setAnalysisLoading(els.posterGenerationProgress, true);
     els.posterProgressTitle.textContent = state.posterReferenceFile
-      ? '正在分析参考图并策划海报'
-      : '正在根据沙发策划海报';
-    els.posterProgressDetail.textContent = 'AI 正在自由决定场景、构图、配色、灯光、展示角度与中文文案';
+      ? '正在结合参考图策划海报'
+      : state.posterPrompt
+        ? '正在根据创意需求策划海报'
+        : '正在根据沙发策划海报';
+    els.posterProgressDetail.textContent = state.posterPrompt
+      ? 'AI 正在把需求转化为场景、构图、配色与中文文案'
+      : 'AI 正在自由决定场景、构图、配色、灯光、展示角度与中文文案';
     const payload = await postFormStream('/api/generate-poster', formData, (event) => {
       els.posterProgressTitle.textContent = event.title || '正在生成海报';
       els.posterProgressDetail.textContent = event.detail || '请稍候';
