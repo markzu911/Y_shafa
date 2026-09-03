@@ -415,6 +415,96 @@ h2 {
   animation: none;
 }
 
+.expert-workflow-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.expert-workflow-tab {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  border: 1px solid rgba(93, 62, 37, 0.14);
+  border-radius: 18px;
+  padding: 12px 16px;
+  background: rgba(255, 252, 246, 0.68);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.expert-workflow-tab:hover {
+  transform: translateY(-2px);
+  border-color: rgba(184, 101, 63, 0.32);
+  box-shadow: var(--soft-shadow);
+}
+
+.expert-workflow-tab.is-selected {
+  border-color: rgba(125, 61, 38, 0.32);
+  background: linear-gradient(135deg, rgba(255, 246, 232, 0.96), rgba(232, 238, 224, 0.86));
+  color: var(--ink);
+  box-shadow: 0 14px 30px rgba(125, 61, 38, 0.12);
+}
+
+.expert-workflow-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(239, 224, 205, 0.82);
+  color: var(--clay-dark);
+}
+
+.expert-workflow-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.expert-workflow-tab.is-selected .expert-workflow-icon {
+  background: linear-gradient(135deg, var(--clay), var(--clay-dark));
+  color: #fff;
+}
+
+.expert-workflow-tab strong,
+.expert-workflow-tab small {
+  display: block;
+}
+
+.expert-workflow-tab strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.expert-workflow-tab small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.expert-workflow-tab:focus-visible,
+.step:focus-visible,
+.segmented button:focus-visible,
+.upload-box:focus-within {
+  outline: 3px solid rgba(125, 61, 38, 0.24);
+  outline-offset: 2px;
+}
+
+.workflow-card[hidden] {
+  display: none;
+}
+
 .section-heading {
   display: none;
   grid-template-columns: minmax(0, 0.76fr) minmax(220px, 0.5fr);
@@ -445,6 +535,10 @@ h2 {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.product-steps {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .step {
@@ -867,6 +961,207 @@ h2 {
   margin: 24px 0 4px;
 }
 
+.product-controls-grid,
+.poster-controls-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.product-view-field,
+.poster-ratio-field,
+.poster-price-field,
+.poster-reference-field {
+  grid-column: 1 / -1;
+}
+
+.optional-label {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.poster-price-control {
+  display: flex;
+  align-items: center;
+  width: min(100%, 360px);
+  min-height: 48px;
+  border: 1px solid rgba(93, 62, 37, 0.16);
+  border-radius: 14px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--clay-dark);
+  font-size: 18px;
+  font-weight: 900;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.poster-price-control:focus-within {
+  border-color: rgba(184, 101, 63, 0.5);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(184, 101, 63, 0.12);
+}
+
+.poster-price-control input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  padding: 11px 10px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.poster-price-control input::placeholder {
+  color: var(--faint);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.poster-price-hint {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.poster-reference-control {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.poster-reference-control:has(.poster-reference-preview[hidden]) {
+  grid-template-columns: 1fr;
+}
+
+.poster-reference-upload,
+.poster-reference-preview {
+  min-height: 96px;
+  border: 1px solid rgba(93, 62, 37, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.poster-reference-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-style: dashed;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.poster-reference-upload:hover {
+  transform: translateY(-1px);
+  border-color: rgba(184, 101, 63, 0.48);
+  background: rgba(255, 249, 239, 0.9);
+}
+
+.poster-reference-upload:focus-within {
+  outline: 3px solid rgba(184, 101, 63, 0.2);
+  outline-offset: 2px;
+}
+
+.poster-reference-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.poster-reference-add {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--clay), var(--clay-dark));
+  font-size: 28px;
+  line-height: 1;
+}
+
+.poster-reference-upload > span:last-child,
+.poster-reference-preview > div {
+  min-width: 0;
+}
+
+.poster-reference-upload strong,
+.poster-reference-preview strong {
+  display: block;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.poster-reference-upload small,
+.poster-reference-preview small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.poster-reference-preview {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.poster-reference-preview[hidden] {
+  display: none;
+}
+
+.poster-reference-preview img {
+  width: 68px;
+  height: 68px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: rgba(239, 222, 202, 0.72);
+}
+
+.poster-reference-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poster-reference-clear {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(93, 62, 37, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--clay-dark);
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.poster-reference-clear:hover {
+  transform: scale(1.04);
+  border-color: rgba(184, 101, 63, 0.42);
+  background: #fff;
+}
+
 fieldset {
   border: 1px solid rgba(93, 62, 37, 0.14);
   border-radius: 22px;
@@ -922,6 +1217,70 @@ legend {
 .generated-frame {
   aspect-ratio: 4 / 3;
   min-height: 430px;
+}
+
+.product-generated-frame {
+  aspect-ratio: 1 / 1;
+}
+
+.poster-generated-frame {
+  aspect-ratio: 3 / 4;
+  min-height: 0;
+  width: min(100%, 700px);
+  margin-inline: auto;
+}
+
+.poster-copy-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  margin-top: 16px;
+  border-top: 1px solid rgba(93, 62, 37, 0.12);
+  padding-top: 16px;
+}
+
+.poster-copy-preview[hidden] {
+  display: none;
+}
+
+.poster-copy-preview > span {
+  color: var(--clay-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.poster-copy-preview strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+
+.poster-copy-preview p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.poster-copy-preview ul {
+  display: flex;
+  gap: 8px 18px;
+  flex-wrap: wrap;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--ink);
+  list-style: none;
+}
+
+.poster-copy-preview li::before {
+  margin-right: 6px;
+  color: var(--sage);
+  content: "•";
+  font-weight: 900;
+}
+
+.poster-workflow .history-thumb img {
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
 }
 
 .result-actions {
@@ -1181,6 +1540,18 @@ body.is-modal-open {
     grid-template-columns: 1fr;
   }
 
+  .product-controls-grid,
+  .poster-controls-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-view-field,
+  .poster-ratio-field,
+  .poster-price-field,
+  .poster-reference-field {
+    grid-column: auto;
+  }
+
   .step {
     grid-template-columns: 38px 1fr;
   }
@@ -1206,6 +1577,23 @@ body.is-modal-open {
   .app-shell {
     width: min(100% - 20px, 1180px);
     margin-top: 14px;
+  }
+
+  .expert-workflow-switcher {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .expert-workflow-tab {
+    min-height: 68px;
+  }
+
+  .poster-generated-frame {
+    width: 100%;
+  }
+
+  .poster-reference-control {
+    grid-template-columns: 1fr;
   }
 
   .hero,

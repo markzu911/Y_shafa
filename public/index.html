@@ -65,7 +65,74 @@
       </section>
 
       <div class="expert-panel" id="expertPanel" hidden>
-      <section class="workflow-card" id="workflow">
+      <nav class="expert-workflow-switcher" aria-label="专家模式工作流" role="tablist">
+        <button
+          class="expert-workflow-tab is-selected"
+          id="placementWorkflowTab"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="workflow"
+          data-expert-workflow="placement"
+        >
+          <span class="expert-workflow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 11.5 12 4l9 7.5" />
+              <path d="M5.5 10v9.5h13V10" />
+              <path d="M8 16h8" />
+              <path d="M7 16v-2.5A1.5 1.5 0 0 1 8.5 12h7a1.5 1.5 0 0 1 1.5 1.5V16" />
+            </svg>
+          </span>
+          <span>
+            <strong>空间摆放图</strong>
+            <small>融合房间与沙发，预览真实摆放效果</small>
+          </span>
+        </button>
+        <button
+          class="expert-workflow-tab"
+          id="productWorkflowTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="productWorkflow"
+          data-expert-workflow="product"
+        >
+          <span class="expert-workflow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
+              <path d="m4.3 7.7 7.7 4.4 7.7-4.4" />
+              <path d="M12 12.1V21" />
+            </svg>
+          </span>
+          <span>
+            <strong>产品图</strong>
+            <small>默认棚拍或参考风格，突出沙发产品本身</small>
+          </span>
+        </button>
+        <button
+          class="expert-workflow-tab"
+          id="posterWorkflowTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="posterWorkflow"
+          data-expert-workflow="poster"
+        >
+          <span class="expert-workflow-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="3" width="16" height="18" rx="2" />
+              <path d="M8 8h8M8 12h5" />
+              <path d="M8 17c1.7-2 6.3-2 8 0" />
+            </svg>
+          </span>
+          <span>
+            <strong>海报模式</strong>
+            <small>AI 策划促销文案与商品主视觉</small>
+          </span>
+        </button>
+      </nav>
+
+      <section class="workflow-card" id="workflow" role="tabpanel" aria-labelledby="placementWorkflowTab">
         <div class="section-heading">
           <p class="eyebrow">工作台</p>
           <h2>按顺序完成你的效果图</h2>
@@ -239,6 +306,310 @@
         </div>
       </section>
       </section>
+
+      <section class="workflow-card product-workflow" id="productWorkflow" role="tabpanel" aria-labelledby="productWorkflowTab" hidden>
+        <div class="section-heading">
+          <p class="eyebrow">产品图工作台</p>
+          <h2>两步生成干净的沙发产品图</h2>
+          <p>先识别产品细节，再生成默认棚拍或参考风格的标准展示图。<button class="mode-switch-link" id="productToAgent" type="button">切换到智能体</button></p>
+        </div>
+
+        <nav class="steps product-steps" aria-label="产品图流程">
+          <button class="step is-active" data-product-step-target="1">
+            <span>1</span>
+            <strong>沙发分析</strong>
+            <small>锁定产品特征</small>
+          </button>
+          <button class="step" data-product-step-target="2" disabled>
+            <span>2</span>
+            <strong>生成产品图</strong>
+            <small>选择角度与画质</small>
+          </button>
+        </nav>
+
+        <section class="panel is-active" data-product-step="1">
+          <div class="copy">
+            <h2>上传沙发图片</h2>
+            <p>模型会识别沙发造型、颜色、材质和关键结构，生成时将严格保留这些产品特征。</p>
+          </div>
+          <div class="workspace">
+            <label class="upload-box" for="productSofaInput">
+              <input id="productSofaInput" type="file" accept="image/*" />
+              <span class="upload-icon">+</span>
+              <strong>选择沙发图片</strong>
+              <small>支持 JPG、PNG、WebP，最大 20MB；清晰、完整的产品照片效果更好。</small>
+            </label>
+            <div class="preview-wrap">
+              <img id="productSofaPreview" alt="产品图沙发预览" />
+            </div>
+          </div>
+          <button class="primary-action" id="analyzeProductSofaBtn" disabled>分析沙发</button>
+          <div class="analysis-loading" id="productSofaLoading" hidden>
+            <span class="scan-orb" aria-hidden="true"></span>
+            <div>
+              <strong>正在分析沙发</strong>
+              <p>锁定造型、比例、颜色、材质与关键结构</p>
+            </div>
+            <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <div class="result-box" id="productSofaAnalysisBox" hidden></div>
+        </section>
+
+        <section class="panel" data-product-step="2">
+          <div class="copy">
+            <h2>选择生成参数</h2>
+            <p>选择沙发展示角度，并可上传家具摄影参考图来控制背景、构图、灯光与道具风格。</p>
+          </div>
+
+          <div class="controls-grid product-controls-grid">
+            <fieldset class="product-view-field">
+              <legend>展示角度</legend>
+              <div class="segmented" data-group="productView">
+                <button class="is-selected" data-value="沙发正面">沙发正面</button>
+                <button data-value="沙发侧面">沙发侧面</button>
+                <button data-value="沙发背面">沙发背面</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>清晰度</legend>
+              <div class="segmented" data-group="productResolution">
+                <button class="is-selected" data-value="1K">1K</button>
+                <button data-value="2K">2K</button>
+                <button data-value="4K">4K</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>图片比例</legend>
+              <div class="segmented" data-group="productRatio">
+                <button data-value="4:3">4:3</button>
+                <button data-value="3:4">3:4</button>
+                <button class="is-selected" data-value="1:1">1:1</button>
+              </div>
+            </fieldset>
+
+            <fieldset class="poster-reference-field product-reference-field">
+              <legend>参考图片 <span class="optional-label">可选</span></legend>
+              <div class="poster-reference-control">
+                <label class="poster-reference-upload" for="productReferenceInput">
+                  <input id="productReferenceInput" type="file" accept="image/*" />
+                  <span class="poster-reference-add" aria-hidden="true">+</span>
+                  <span>
+                    <strong id="productReferenceUploadTitle">上传参考图片</strong>
+                    <small>单张沙发产品图或家具摄影图</small>
+                  </span>
+                </label>
+                <div class="poster-reference-preview" id="productReferencePreviewWrap" hidden>
+                  <img id="productReferencePreview" alt="已选择的产品图参考图片预览" />
+                  <div>
+                    <strong>已选择参考图片</strong>
+                    <small id="productReferenceName"></small>
+                  </div>
+                  <button
+                    class="poster-reference-clear"
+                    id="productReferenceClearBtn"
+                    type="button"
+                    aria-label="移除产品图参考图片"
+                    title="移除参考图片"
+                  >×</button>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="button-row">
+            <button class="secondary-action" data-product-back="1">返回</button>
+            <button class="primary-action" id="generateProductBtn">生成产品图</button>
+          </div>
+
+          <div class="generation-area" id="productGenerationArea" hidden>
+            <div class="generated-frame product-generated-frame">
+              <img id="productGeneratedImage" alt="生成的沙发产品图" />
+            </div>
+            <div class="result-actions">
+              <a class="download-link" id="productDownloadLink" download="sofa-product.png">下载图片</a>
+              <p id="productGenerationNote"></p>
+            </div>
+          </div>
+
+          <div class="history-area" id="productHistoryArea" hidden>
+            <div class="history-heading">
+              <h3>产品图历史</h3>
+              <p>点击小图放大查看</p>
+            </div>
+            <div class="history-grid" id="productHistoryGrid" aria-label="产品图生成历史记录"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="workflow-card poster-workflow" id="posterWorkflow" role="tabpanel" aria-labelledby="posterWorkflowTab" hidden>
+        <div class="section-heading">
+          <p class="eyebrow">海报工作台</p>
+          <h2>两步生成沙发促销海报</h2>
+          <p>识别沙发后，AI 会根据产品气质自由策划场景、构图、展示角度和中文文案。<button class="mode-switch-link" id="posterToAgent" type="button">切换到智能体</button></p>
+        </div>
+
+        <nav class="steps product-steps" aria-label="海报生成流程">
+          <button class="step is-active" data-poster-step-target="1">
+            <span>1</span>
+            <strong>沙发分析</strong>
+            <small>锁定产品特征</small>
+          </button>
+          <button class="step" data-poster-step-target="2" disabled>
+            <span>2</span>
+            <strong>生成海报</strong>
+            <small>AI 构图与排版</small>
+          </button>
+        </nav>
+
+        <section class="panel is-active" data-poster-step="1">
+          <div class="copy">
+            <h2>上传沙发图片</h2>
+            <p>模型会识别沙发造型、颜色、材质与卖点，并在生成海报时保留产品特征。</p>
+          </div>
+          <div class="workspace">
+            <label class="upload-box" for="posterSofaInput">
+              <input id="posterSofaInput" type="file" accept="image/*" />
+              <span class="upload-icon">+</span>
+              <strong>选择沙发图片</strong>
+              <small>支持 JPG、PNG、WebP，最大 20MB；建议上传完整、清晰的产品照片。</small>
+            </label>
+            <div class="preview-wrap">
+              <img id="posterSofaPreview" alt="海报模式沙发预览" />
+            </div>
+          </div>
+          <button class="primary-action" id="analyzePosterSofaBtn" disabled>分析沙发</button>
+          <div class="analysis-loading" id="posterSofaLoading" hidden>
+            <span class="scan-orb" aria-hidden="true"></span>
+            <div>
+              <strong>正在分析沙发</strong>
+              <p>提取造型、颜色、材质与适合表达的商品卖点</p>
+            </div>
+            <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+          <div class="result-box" id="posterSofaAnalysisBox" hidden></div>
+        </section>
+
+        <section class="panel" data-poster-step="2">
+          <div class="copy">
+            <h2>选择生成参数</h2>
+            <p>未上传参考海报时，AI 会加入纵向与横向图标卖点模块；上传参考海报时跟随参考版式。</p>
+          </div>
+
+          <div class="controls-grid poster-controls-grid">
+            <fieldset>
+              <legend>是否需要模特</legend>
+              <div class="segmented" data-group="posterNeedsModel">
+                <button class="is-selected" data-value="false">不需要</button>
+                <button data-value="true">需要</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>清晰度</legend>
+              <div class="segmented" data-group="posterResolution">
+                <button class="is-selected" data-value="1K">1K</button>
+                <button data-value="2K">2K</button>
+                <button data-value="4K">4K</button>
+              </div>
+            </fieldset>
+
+            <fieldset class="poster-ratio-field">
+              <legend>图片比例</legend>
+              <div class="segmented" data-group="posterRatio">
+                <button class="is-selected" data-value="3:4">3:4 竖版</button>
+                <button data-value="1:1">1:1 方图</button>
+                <button data-value="4:3">4:3 横版</button>
+              </div>
+            </fieldset>
+
+            <fieldset class="poster-price-field">
+              <legend>商品价格 <span class="optional-label">可选</span></legend>
+              <label class="poster-price-control" for="posterPriceInput">
+                <span aria-hidden="true">¥</span>
+                <input
+                  id="posterPriceInput"
+                  type="text"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="8"
+                  autocomplete="off"
+                  placeholder="例如 2099"
+                  aria-describedby="posterPriceHint"
+                />
+              </label>
+              <small class="poster-price-hint" id="posterPriceHint">填写后显示“到手价 ¥价格 起”和“立即抢购”</small>
+            </fieldset>
+
+            <fieldset class="poster-reference-field">
+              <legend>参考海报 <span class="optional-label">可选</span></legend>
+              <div class="poster-reference-control">
+                <label class="poster-reference-upload" for="posterReferenceInput">
+                  <input id="posterReferenceInput" type="file" accept="image/*" />
+                  <span class="poster-reference-add" aria-hidden="true">+</span>
+                  <span>
+                    <strong id="posterReferenceUploadTitle">上传参考海报</strong>
+                    <small>单张完整沙发宣传海报</small>
+                  </span>
+                </label>
+                <div class="poster-reference-preview" id="posterReferencePreviewWrap" hidden>
+                  <img id="posterReferencePreview" alt="已选择的参考海报预览" />
+                  <div>
+                    <strong>已选择参考海报</strong>
+                    <small id="posterReferenceName"></small>
+                  </div>
+                  <button
+                    class="poster-reference-clear"
+                    id="posterReferenceClearBtn"
+                    type="button"
+                    aria-label="移除参考海报"
+                    title="移除参考海报"
+                  >×</button>
+                </div>
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="button-row">
+            <button class="secondary-action" data-poster-back="1">返回</button>
+            <button class="primary-action" id="generatePosterBtn">生成海报</button>
+          </div>
+
+          <div class="analysis-loading" id="posterGenerationProgress" role="status" aria-live="polite" hidden>
+            <span class="scan-orb" aria-hidden="true"></span>
+            <div>
+              <strong id="posterProgressTitle">正在策划海报</strong>
+              <p id="posterProgressDetail">根据沙发自由决定场景、构图、配色和中文文案</p>
+            </div>
+            <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </div>
+
+          <div class="generation-area" id="posterGenerationArea" hidden>
+            <div class="generated-frame poster-generated-frame">
+              <img id="posterGeneratedImage" alt="生成的沙发促销海报" />
+            </div>
+            <div class="poster-copy-preview" id="posterCopyPreview" hidden>
+              <span>海报文案</span>
+              <strong id="posterCopyHeadline"></strong>
+              <p id="posterCopySubtitle"></p>
+              <ul id="posterCopySellingPoints"></ul>
+            </div>
+            <div class="result-actions">
+              <a class="download-link" id="posterDownloadLink" download="sofa-poster.png">下载图片</a>
+              <p id="posterGenerationNote"></p>
+            </div>
+          </div>
+
+          <div class="history-area" id="posterHistoryArea" hidden>
+            <div class="history-heading">
+              <h3>海报历史</h3>
+              <p>点击小图放大查看</p>
+            </div>
+            <div class="history-grid" id="posterHistoryGrid" aria-label="海报生成历史记录"></div>
+          </div>
+        </section>
+      </section>
       </div>
 
       <section class="agent-panel is-active" id="agentPanel">
@@ -272,7 +643,7 @@
       <img id="modalImage" alt="放大的生成效果图" />
     </div>
 
-    <div class="toast" id="toast" hidden></div>
-    <script src="/app.js?v=20260601-result-original-upload" type="module"></script>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/app.js?v=20260903-product-reference" type="module"></script>
   </body>
 </html>

@@ -1,5 +1,6 @@
 const state = {
   currentStep: 1,
+  expertWorkflow: 'placement',
   roomMode: 'upload',
   virtualStyle: '现代简约',
   roomFile: null,
@@ -12,6 +13,23 @@ const state = {
   resolution: '1K',
   ratio: '4:3',
   history: [],
+  productStep: 1,
+  productSofaFile: null,
+  productSofaAnalysis: '',
+  productReferenceFile: null,
+  productView: '沙发正面',
+  productResolution: '1K',
+  productRatio: '1:1',
+  productHistory: [],
+  posterStep: 1,
+  posterSofaFile: null,
+  posterSofaAnalysis: '',
+  posterReferenceFile: null,
+  posterNeedsModel: false,
+  posterResolution: '1K',
+  posterRatio: '3:4',
+  posterPrice: '',
+  posterHistory: [],
   saas: {
     userId: '',
     toolId: '',
@@ -31,8 +49,16 @@ const state = {
 
 const els = {
   creditStatus: document.querySelector('#creditStatus'),
-  steps: [...document.querySelectorAll('.step')],
-  panels: [...document.querySelectorAll('.panel')],
+  steps: [...document.querySelectorAll('.step[data-step-target]')],
+  panels: [...document.querySelectorAll('.panel[data-step]')],
+  expertWorkflowTabs: [...document.querySelectorAll('[data-expert-workflow]')],
+  placementWorkflow: document.querySelector('#workflow'),
+  productWorkflow: document.querySelector('#productWorkflow'),
+  posterWorkflow: document.querySelector('#posterWorkflow'),
+  productSteps: [...document.querySelectorAll('.step[data-product-step-target]')],
+  productPanels: [...document.querySelectorAll('.panel[data-product-step]')],
+  posterSteps: [...document.querySelectorAll('.step[data-poster-step-target]')],
+  posterPanels: [...document.querySelectorAll('.panel[data-poster-step]')],
   roomStepTitle: document.querySelector('#roomStepTitle'),
   roomStepDescription: document.querySelector('#roomStepDescription'),
   uploadRoomPane: document.querySelector('#uploadRoomPane'),
@@ -54,6 +80,50 @@ const els = {
   generationNote: document.querySelector('#generationNote'),
   historyArea: document.querySelector('#historyArea'),
   historyGrid: document.querySelector('#historyGrid'),
+  productSofaInput: document.querySelector('#productSofaInput'),
+  productSofaPreview: document.querySelector('#productSofaPreview'),
+  analyzeProductSofaBtn: document.querySelector('#analyzeProductSofaBtn'),
+  productSofaLoading: document.querySelector('#productSofaLoading'),
+  productSofaAnalysisBox: document.querySelector('#productSofaAnalysisBox'),
+  generateProductBtn: document.querySelector('#generateProductBtn'),
+  productGenerationArea: document.querySelector('#productGenerationArea'),
+  productGeneratedImage: document.querySelector('#productGeneratedImage'),
+  productDownloadLink: document.querySelector('#productDownloadLink'),
+  productGenerationNote: document.querySelector('#productGenerationNote'),
+  productHistoryArea: document.querySelector('#productHistoryArea'),
+  productHistoryGrid: document.querySelector('#productHistoryGrid'),
+  productReferenceInput: document.querySelector('#productReferenceInput'),
+  productReferencePreviewWrap: document.querySelector('#productReferencePreviewWrap'),
+  productReferencePreview: document.querySelector('#productReferencePreview'),
+  productReferenceName: document.querySelector('#productReferenceName'),
+  productReferenceUploadTitle: document.querySelector('#productReferenceUploadTitle'),
+  productReferenceClearBtn: document.querySelector('#productReferenceClearBtn'),
+  posterSofaInput: document.querySelector('#posterSofaInput'),
+  posterSofaPreview: document.querySelector('#posterSofaPreview'),
+  analyzePosterSofaBtn: document.querySelector('#analyzePosterSofaBtn'),
+  posterSofaLoading: document.querySelector('#posterSofaLoading'),
+  posterSofaAnalysisBox: document.querySelector('#posterSofaAnalysisBox'),
+  posterReferenceInput: document.querySelector('#posterReferenceInput'),
+  posterReferencePreviewWrap: document.querySelector('#posterReferencePreviewWrap'),
+  posterReferencePreview: document.querySelector('#posterReferencePreview'),
+  posterReferenceName: document.querySelector('#posterReferenceName'),
+  posterReferenceUploadTitle: document.querySelector('#posterReferenceUploadTitle'),
+  posterReferenceClearBtn: document.querySelector('#posterReferenceClearBtn'),
+  posterPriceInput: document.querySelector('#posterPriceInput'),
+  generatePosterBtn: document.querySelector('#generatePosterBtn'),
+  posterGenerationProgress: document.querySelector('#posterGenerationProgress'),
+  posterProgressTitle: document.querySelector('#posterProgressTitle'),
+  posterProgressDetail: document.querySelector('#posterProgressDetail'),
+  posterGenerationArea: document.querySelector('#posterGenerationArea'),
+  posterGeneratedImage: document.querySelector('#posterGeneratedImage'),
+  posterDownloadLink: document.querySelector('#posterDownloadLink'),
+  posterGenerationNote: document.querySelector('#posterGenerationNote'),
+  posterCopyPreview: document.querySelector('#posterCopyPreview'),
+  posterCopyHeadline: document.querySelector('#posterCopyHeadline'),
+  posterCopySubtitle: document.querySelector('#posterCopySubtitle'),
+  posterCopySellingPoints: document.querySelector('#posterCopySellingPoints'),
+  posterHistoryArea: document.querySelector('#posterHistoryArea'),
+  posterHistoryGrid: document.querySelector('#posterHistoryGrid'),
   imageModal: document.querySelector('#imageModal'),
   modalImage: document.querySelector('#modalImage'),
   modalClose: document.querySelector('#modalClose'),
@@ -295,13 +365,13 @@ async function putGeneratedBlob(token, blob, mimeType) {
   throw lastError || new Error('生成图片上传失败。');
 }
 
-async function uploadGeneratedImage(imageDataUrl) {
+async function uploadGeneratedImage(imageDataUrl, filePrefix = 'sofa-placement') {
   if (!hasSaasContext()) return null;
 
   const blob = await imageDataUrlToBlob(imageDataUrl);
   const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
   const extension = getImageExtension(mimeType);
-  const fileName = `sofa-placement-${Date.now()}.${extension}`;
+  const fileName = `${filePrefix}-${Date.now()}.${extension}`;
   const token = await postJson(state.saas.uploadTokenUrl, {
     ...getSaasRequestBody(),
     source: 'result',
@@ -342,6 +412,56 @@ function goToStep(step) {
       (buttonStep === 3 && (!state.roomAnalysis || !state.sofaAnalysis));
   });
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goToProductStep(step) {
+  state.productStep = step;
+  els.productPanels.forEach((panel) => {
+    panel.classList.toggle('is-active', Number(panel.dataset.productStep) === step);
+  });
+  els.productSteps.forEach((button) => {
+    const buttonStep = Number(button.dataset.productStepTarget);
+    button.classList.toggle('is-active', buttonStep === step);
+    button.disabled = buttonStep === 2 && !state.productSofaAnalysis;
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goToPosterStep(step) {
+  state.posterStep = step;
+  els.posterPanels.forEach((panel) => {
+    panel.classList.toggle('is-active', Number(panel.dataset.posterStep) === step);
+  });
+  els.posterSteps.forEach((button) => {
+    const buttonStep = Number(button.dataset.posterStepTarget);
+    button.classList.toggle('is-active', buttonStep === step);
+    button.disabled = buttonStep === 2 && !state.posterSofaAnalysis;
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function switchExpertWorkflow(workflow) {
+  state.expertWorkflow = ['placement', 'product', 'poster'].includes(workflow) ? workflow : 'placement';
+  const isProduct = state.expertWorkflow === 'product';
+  const isPoster = state.expertWorkflow === 'poster';
+
+  els.placementWorkflow.hidden = isProduct || isPoster;
+  els.productWorkflow.hidden = !isProduct;
+  els.posterWorkflow.hidden = !isPoster;
+  els.expertWorkflowTabs.forEach((button) => {
+    const isSelected = button.dataset.expertWorkflow === state.expertWorkflow;
+    button.classList.toggle('is-selected', isSelected);
+    button.setAttribute('aria-selected', String(isSelected));
+    button.tabIndex = isSelected ? 0 : -1;
+  });
+
+  if (isProduct) {
+    goToProductStep(state.productSofaAnalysis ? 2 : 1);
+  } else if (isPoster) {
+    goToPosterStep(state.posterSofaAnalysis ? 2 : 1);
+  } else {
+    goToStep(state.currentStep);
+  }
 }
 
 function previewFile(file, img) {
@@ -447,6 +567,64 @@ async function postForm(url, formData) {
   return payload;
 }
 
+async function postFormStream(url, formData, onProgress) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData
+    });
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error, '海报生成'));
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(getHttpErrorMessage(response, payload, '图片生成'));
+  }
+  if (!response.body) {
+    throw new Error('浏览器无法读取海报生成进度，请升级浏览器后重试。');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let resultPayload = null;
+
+  const processLine = (line) => {
+    const text = line.trim();
+    if (!text) return;
+    let event;
+    try {
+      event = JSON.parse(text);
+    } catch {
+      throw new Error('海报生成进度响应格式无效。');
+    }
+    if (event.type === 'progress') {
+      onProgress?.(event);
+    } else if (event.type === 'error') {
+      throw new Error(event.error || '海报生成失败，请重试。');
+    } else if (event.type === 'result') {
+      resultPayload = event.payload;
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    lines.forEach(processLine);
+    if (done) break;
+  }
+  processLine(buffer);
+
+  if (!resultPayload) {
+    throw new Error('海报生成结束，但没有返回通过内容校验的图片。');
+  }
+  return resultPayload;
+}
+
 function makeImageForm(fieldName, file) {
   const formData = new FormData();
   formData.append(fieldName, file);
@@ -531,6 +709,101 @@ function addHistoryItem(payload) {
   });
   state.history = state.history.slice(0, 12);
   renderHistory();
+}
+
+function getProductParamsLabel(usedReference = Boolean(state.productReferenceFile)) {
+  const referenceLabel = usedReference ? '参考图驱动 · ' : '';
+  return `产品图 · ${referenceLabel}${state.productView} · ${state.productResolution} · ${state.productRatio}`;
+}
+
+function renderProductHistory() {
+  els.productHistoryGrid.innerHTML = '';
+  els.productHistoryArea.hidden = state.productHistory.length === 0;
+
+  state.productHistory.forEach((item, index) => {
+    const button = document.createElement('button');
+    button.className = 'history-thumb';
+    button.type = 'button';
+    button.dataset.index = String(index);
+    button.setAttribute('aria-label', `查看第 ${state.productHistory.length - index} 张产品图`);
+
+    const img = document.createElement('img');
+    img.src = item.image;
+    img.alt = '沙发产品图缩略图';
+
+    const meta = document.createElement('span');
+    meta.textContent = item.label;
+
+    button.append(img, meta);
+    els.productHistoryGrid.append(button);
+  });
+}
+
+function addProductHistoryItem(payload) {
+  state.productHistory.unshift({
+    image: payload.image,
+    label: getProductParamsLabel(payload.params?.usedReference)
+  });
+  state.productHistory = state.productHistory.slice(0, 12);
+  renderProductHistory();
+}
+
+function getPosterParamsLabel(usedReference = Boolean(state.posterReferenceFile), price = state.posterPrice) {
+  const modelLabel = state.posterNeedsModel ? '需要模特' : '不需要模特';
+  const referenceLabel = usedReference ? '参考图驱动 · ' : '';
+  const priceLabel = price ? ` · ¥${price}` : '';
+  return `海报 · ${referenceLabel}AI 自动角度 · ${modelLabel} · ${state.posterResolution} · ${state.posterRatio}${priceLabel}`;
+}
+
+function renderPosterCopyPreview(copy) {
+  els.posterCopyHeadline.textContent = copy.headline;
+  els.posterCopySubtitle.textContent = copy.subtitle;
+  els.posterCopySellingPoints.innerHTML = '';
+  const featurePoints = [
+    ...(copy.verticalSellingPoints || []),
+    ...(copy.horizontalSellingPoints || [])
+  ];
+  const displayPoints = featurePoints.length > 0 ? featurePoints : (copy.sellingPoints || []);
+  displayPoints.forEach((point) => {
+    const item = document.createElement('li');
+    item.textContent = typeof point === 'string'
+      ? point
+      : `${point.title}${point.description ? ` · ${point.description}` : ''}`;
+    els.posterCopySellingPoints.append(item);
+  });
+  els.posterCopySellingPoints.hidden = displayPoints.length === 0;
+  els.posterCopyPreview.hidden = false;
+}
+
+function renderPosterHistory() {
+  els.posterHistoryGrid.innerHTML = '';
+  els.posterHistoryArea.hidden = state.posterHistory.length === 0;
+
+  state.posterHistory.forEach((item, index) => {
+    const button = document.createElement('button');
+    button.className = 'history-thumb';
+    button.type = 'button';
+    button.dataset.index = String(index);
+    button.setAttribute('aria-label', `查看第 ${state.posterHistory.length - index} 张海报`);
+
+    const image = document.createElement('img');
+    image.src = item.image;
+    image.alt = '沙发促销海报缩略图';
+
+    const meta = document.createElement('span');
+    meta.textContent = item.label;
+    button.append(image, meta);
+    els.posterHistoryGrid.append(button);
+  });
+}
+
+function addPosterHistoryItem(payload) {
+  state.posterHistory.unshift({
+    image: payload.image,
+    label: getPosterParamsLabel(payload.params?.usedReference, payload.params?.price)
+  });
+  state.posterHistory = state.posterHistory.slice(0, 12);
+  renderPosterHistory();
 }
 
 /* ===================================================================
@@ -1122,6 +1395,293 @@ function syncExpertToAgent() {
   renderChatMessages();
 }
 
+els.expertWorkflowTabs.forEach((button, index) => {
+  button.addEventListener('click', () => {
+    switchExpertWorkflow(button.dataset.expertWorkflow);
+  });
+  button.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    event.preventDefault();
+    const offset = event.key === 'ArrowRight' ? 1 : -1;
+    const nextIndex = (index + offset + els.expertWorkflowTabs.length) % els.expertWorkflowTabs.length;
+    els.expertWorkflowTabs[nextIndex].focus();
+    switchExpertWorkflow(els.expertWorkflowTabs[nextIndex].dataset.expertWorkflow);
+  });
+});
+
+els.productSofaInput.addEventListener('change', async () => {
+  const file = els.productSofaInput.files?.[0];
+  if (!file) return;
+  try {
+    state.productSofaFile = await prepareToolImage(file);
+    state.productSofaAnalysis = '';
+    els.productSofaAnalysisBox.hidden = true;
+    els.productSofaAnalysisBox.textContent = '';
+    els.productGenerationArea.hidden = true;
+    els.analyzeProductSofaBtn.disabled = false;
+    previewFile(file, els.productSofaPreview);
+    goToProductStep(1);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.analyzeProductSofaBtn.addEventListener('click', async () => {
+  if (!state.productSofaFile) return;
+
+  try {
+    setBusy(els.analyzeProductSofaBtn, '正在分析沙发...', true);
+    setAnalysisLoading(els.productSofaLoading, true);
+    els.productSofaAnalysisBox.hidden = true;
+    const payload = await postForm('/api/analyze-sofa', makeImageForm('image', state.productSofaFile));
+    state.productSofaAnalysis = payload.analysis || '模型没有返回文字分析。';
+    els.productSofaAnalysisBox.textContent = state.productSofaAnalysis;
+    els.productSofaAnalysisBox.hidden = false;
+    goToProductStep(2);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(els.analyzeProductSofaBtn, '分析沙发', false);
+    setAnalysisLoading(els.productSofaLoading, false);
+    els.analyzeProductSofaBtn.disabled = !state.productSofaFile;
+  }
+});
+
+function clearProductReference() {
+  state.productReferenceFile = null;
+  els.productReferenceInput.value = '';
+  els.productReferencePreview.removeAttribute('src');
+  els.productReferencePreview.classList.remove('has-image');
+  els.productReferencePreviewWrap.hidden = true;
+  els.productReferenceName.textContent = '';
+  els.productReferenceUploadTitle.textContent = '上传参考图片';
+  els.productGenerationArea.hidden = true;
+}
+
+els.productReferenceInput.addEventListener('change', async () => {
+  const file = els.productReferenceInput.files?.[0];
+  if (!file) return;
+
+  try {
+    const preparedFile = await prepareToolImage(file);
+    state.productReferenceFile = preparedFile;
+    previewFile(file, els.productReferencePreview);
+    els.productReferenceName.textContent = file.name;
+    els.productReferencePreviewWrap.hidden = false;
+    els.productReferenceUploadTitle.textContent = '更换参考图片';
+    els.productGenerationArea.hidden = true;
+  } catch (error) {
+    clearProductReference();
+    showToast(error.message);
+  }
+});
+
+els.productReferenceClearBtn.addEventListener('click', clearProductReference);
+
+els.generateProductBtn.addEventListener('click', async () => {
+  if (!state.productSofaFile || !state.productSofaAnalysis) {
+    showToast('请先上传并分析沙发图片。');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('sofaImage', state.productSofaFile);
+  formData.append('sofaAnalysis', state.productSofaAnalysis);
+  formData.append('view', state.productView);
+  formData.append('resolution', state.productResolution);
+  formData.append('ratio', state.productRatio);
+  if (state.productReferenceFile) {
+    formData.append('referenceImage', state.productReferenceFile);
+  }
+
+  try {
+    setBusy(els.generateProductBtn, '正在校验积分...', true);
+    if (!(await ensureCreditsAvailable())) return;
+
+    setBusy(
+      els.generateProductBtn,
+      state.productReferenceFile ? '正在分析参考并生成...' : '正在生成产品图...',
+      true
+    );
+    els.productGenerationArea.hidden = true;
+    const payload = await postForm('/api/generate-product', formData);
+    setBusy(els.generateProductBtn, '正在扣除积分...', true);
+    await consumeCredits();
+
+    try {
+      setBusy(els.generateProductBtn, '正在保存图片...', true);
+      await uploadGeneratedImage(payload.image, 'sofa-product');
+    } catch (uploadError) {
+      showToast(`图片已生成并扣除积分，但保存到我的图片失败：${uploadError.message}`);
+    }
+
+    els.productGeneratedImage.src = payload.image;
+    els.productGeneratedImage.classList.add('has-image');
+    els.productDownloadLink.href = payload.image;
+    els.productGenerationNote.textContent = payload.note || getProductParamsLabel(payload.params?.usedReference);
+    els.productGenerationArea.hidden = false;
+    addProductHistoryItem(payload);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(els.generateProductBtn, '生成产品图', false);
+  }
+});
+
+els.posterSofaInput.addEventListener('change', async () => {
+  const file = els.posterSofaInput.files?.[0];
+  if (!file) return;
+  try {
+    state.posterSofaFile = await prepareToolImage(file);
+    state.posterSofaAnalysis = '';
+    els.posterSofaAnalysisBox.hidden = true;
+    els.posterSofaAnalysisBox.textContent = '';
+    els.posterGenerationArea.hidden = true;
+    els.posterCopyPreview.hidden = true;
+    els.analyzePosterSofaBtn.disabled = false;
+    previewFile(file, els.posterSofaPreview);
+    goToPosterStep(1);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+els.analyzePosterSofaBtn.addEventListener('click', async () => {
+  if (!state.posterSofaFile) return;
+
+  try {
+    setBusy(els.analyzePosterSofaBtn, '正在分析沙发...', true);
+    setAnalysisLoading(els.posterSofaLoading, true);
+    els.posterSofaAnalysisBox.hidden = true;
+    const payload = await postForm('/api/analyze-poster-sofa', makeImageForm('image', state.posterSofaFile));
+    state.posterSofaAnalysis = payload.analysis || '模型没有返回文字分析。';
+    els.posterSofaAnalysisBox.textContent = state.posterSofaAnalysis;
+    els.posterSofaAnalysisBox.hidden = false;
+    goToPosterStep(2);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(els.analyzePosterSofaBtn, '分析沙发', false);
+    setAnalysisLoading(els.posterSofaLoading, false);
+    els.analyzePosterSofaBtn.disabled = !state.posterSofaFile;
+  }
+});
+
+function clearPosterReference() {
+  state.posterReferenceFile = null;
+  els.posterReferenceInput.value = '';
+  els.posterReferencePreview.removeAttribute('src');
+  els.posterReferencePreview.classList.remove('has-image');
+  els.posterReferencePreviewWrap.hidden = true;
+  els.posterReferenceName.textContent = '';
+  els.posterReferenceUploadTitle.textContent = '上传参考海报';
+  els.posterGenerationArea.hidden = true;
+  els.posterCopyPreview.hidden = true;
+}
+
+els.posterReferenceInput.addEventListener('change', async () => {
+  const file = els.posterReferenceInput.files?.[0];
+  if (!file) return;
+
+  try {
+    const preparedFile = await prepareToolImage(file);
+    state.posterReferenceFile = preparedFile;
+    previewFile(file, els.posterReferencePreview);
+    els.posterReferenceName.textContent = file.name;
+    els.posterReferencePreviewWrap.hidden = false;
+    els.posterReferenceUploadTitle.textContent = '更换参考海报';
+    els.posterGenerationArea.hidden = true;
+    els.posterCopyPreview.hidden = true;
+  } catch (error) {
+    clearPosterReference();
+    showToast(error.message);
+  }
+});
+
+els.posterReferenceClearBtn.addEventListener('click', clearPosterReference);
+
+els.posterPriceInput.addEventListener('input', () => {
+  const digits = els.posterPriceInput.value.replace(/\D/g, '').slice(0, 8);
+  const normalized = digits.replace(/^0+(?=\d)/, '');
+  els.posterPriceInput.value = normalized;
+  state.posterPrice = normalized;
+});
+
+els.generatePosterBtn.addEventListener('click', async () => {
+  if (!state.posterSofaFile || !state.posterSofaAnalysis) {
+    showToast('请先上传并分析沙发图片。');
+    return;
+  }
+
+  const posterPrice = els.posterPriceInput.value.trim();
+  if (posterPrice && !/^[1-9]\d{0,7}$/.test(posterPrice)) {
+    showToast('商品价格只能填写 1 至 8 位正整数。');
+    els.posterPriceInput.focus();
+    return;
+  }
+  state.posterPrice = posterPrice;
+
+  const formData = new FormData();
+  formData.append('sofaImage', state.posterSofaFile);
+  formData.append('sofaAnalysis', state.posterSofaAnalysis);
+  formData.append('needsModel', String(state.posterNeedsModel));
+  formData.append('resolution', state.posterResolution);
+  formData.append('ratio', state.posterRatio);
+  formData.append('price', state.posterPrice);
+  if (state.posterReferenceFile) {
+    formData.append('referenceImage', state.posterReferenceFile);
+  }
+
+  try {
+    setBusy(els.generatePosterBtn, '正在校验积分...', true);
+    if (!(await ensureCreditsAvailable())) return;
+
+    setBusy(
+      els.generatePosterBtn,
+      state.posterReferenceFile ? 'AI 正在校验参考海报...' : 'AI 正在策划海报...',
+      true
+    );
+    els.posterGenerationArea.hidden = true;
+    els.posterCopyPreview.hidden = true;
+    setAnalysisLoading(els.posterGenerationProgress, true);
+    els.posterProgressTitle.textContent = state.posterReferenceFile
+      ? '正在分析参考图并策划海报'
+      : '正在根据沙发策划海报';
+    els.posterProgressDetail.textContent = 'AI 正在自由决定场景、构图、配色、灯光、展示角度与中文文案';
+    const payload = await postFormStream('/api/generate-poster', formData, (event) => {
+      els.posterProgressTitle.textContent = event.title || '正在生成海报';
+      els.posterProgressDetail.textContent = event.detail || '请稍候';
+      setBusy(els.generatePosterBtn, event.title || '正在生成海报...', true);
+    });
+    const finalPayload = payload;
+
+    setBusy(els.generatePosterBtn, '正在扣除积分...', true);
+    await consumeCredits();
+
+    try {
+      setBusy(els.generatePosterBtn, '正在保存海报...', true);
+      await uploadGeneratedImage(finalPayload.image, 'sofa-poster');
+    } catch (uploadError) {
+      showToast(`海报已生成并扣除积分，但保存到我的图片失败：${uploadError.message}`);
+    }
+
+    els.posterGeneratedImage.src = finalPayload.image;
+    els.posterGeneratedImage.classList.add('has-image');
+    els.posterDownloadLink.href = finalPayload.image;
+    renderPosterCopyPreview(finalPayload.copy);
+    const concept = payload.artDirection?.concept || 'AI 自由创意海报';
+    const validationAttempts = payload.params?.validationAttempts || 1;
+    els.posterGenerationNote.textContent = `${concept} · 内容校验第 ${validationAttempts}/3 次通过 · ${getPosterParamsLabel(payload.params?.usedReference, payload.params?.price)}`;
+    els.posterGenerationArea.hidden = false;
+    addPosterHistoryItem(finalPayload);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setAnalysisLoading(els.posterGenerationProgress, false);
+    setBusy(els.generatePosterBtn, '生成海报', false);
+  }
+});
+
 els.roomInput.addEventListener('change', async () => {
   const file = els.roomInput.files?.[0];
   if (!file) return;
@@ -1258,14 +1818,19 @@ els.generateBtn.addEventListener('click', async () => {
 });
 
 document.querySelectorAll('.segmented').forEach((group) => {
+  group.querySelectorAll('button').forEach((item) => {
+    item.setAttribute('aria-pressed', String(item.classList.contains('is-selected')));
+  });
   group.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
     group.querySelectorAll('button').forEach((item) => {
       item.classList.toggle('is-selected', item === button);
+      item.setAttribute('aria-pressed', String(item === button));
     });
-    state[group.dataset.group] =
-      group.dataset.group === 'needsModel' ? button.dataset.value === 'true' : button.dataset.value;
+    state[group.dataset.group] = ['needsModel', 'posterNeedsModel'].includes(group.dataset.group)
+      ? button.dataset.value === 'true'
+      : button.dataset.value;
 
     if (group.dataset.group === 'roomMode') {
       resetRoomContext();
@@ -1283,11 +1848,29 @@ document.querySelectorAll('.segmented').forEach((group) => {
       els.generatedImage.parentElement.style.aspectRatio =
         button.dataset.value === '3:4' ? '3 / 4' : '4 / 3';
     }
+
+    if (group.dataset.group === 'productRatio') {
+      const aspectRatios = { '4:3': '4 / 3', '3:4': '3 / 4', '1:1': '1 / 1' };
+      els.productGeneratedImage.parentElement.style.aspectRatio = aspectRatios[button.dataset.value];
+    }
+
+    if (group.dataset.group === 'posterRatio') {
+      const aspectRatios = { '4:3': '4 / 3', '3:4': '3 / 4', '1:1': '1 / 1' };
+      els.posterGeneratedImage.parentElement.style.aspectRatio = aspectRatios[button.dataset.value];
+    }
   });
 });
 
 document.querySelectorAll('[data-back]').forEach((button) => {
   button.addEventListener('click', () => goToStep(Number(button.dataset.back)));
+});
+
+document.querySelectorAll('[data-product-back]').forEach((button) => {
+  button.addEventListener('click', () => goToProductStep(Number(button.dataset.productBack)));
+});
+
+document.querySelectorAll('[data-poster-back]').forEach((button) => {
+  button.addEventListener('click', () => goToPosterStep(Number(button.dataset.posterBack)));
 });
 
 els.historyGrid.addEventListener('click', (event) => {
@@ -1302,6 +1885,36 @@ els.historyGrid.addEventListener('click', (event) => {
 els.generatedImage.addEventListener('click', () => {
   if (els.generatedImage.src) {
     openHistoryPreview(els.generatedImage.src);
+  }
+});
+
+els.productHistoryGrid.addEventListener('click', (event) => {
+  const button = event.target.closest('.history-thumb');
+  if (!button) return;
+  const item = state.productHistory[Number(button.dataset.index)];
+  if (item) {
+    openHistoryPreview(item.image);
+  }
+});
+
+els.productGeneratedImage.addEventListener('click', () => {
+  if (els.productGeneratedImage.src) {
+    openHistoryPreview(els.productGeneratedImage.src);
+  }
+});
+
+els.posterHistoryGrid.addEventListener('click', (event) => {
+  const button = event.target.closest('.history-thumb');
+  if (!button) return;
+  const item = state.posterHistory[Number(button.dataset.index)];
+  if (item) {
+    openHistoryPreview(item.image);
+  }
+});
+
+els.posterGeneratedImage.addEventListener('click', () => {
+  if (els.posterGeneratedImage.src) {
+    openHistoryPreview(els.posterGeneratedImage.src);
   }
 });
 
@@ -1323,6 +1936,22 @@ els.steps.forEach((button) => {
   button.addEventListener('click', () => {
     if (!button.disabled) {
       goToStep(Number(button.dataset.stepTarget));
+    }
+  });
+});
+
+els.productSteps.forEach((button) => {
+  button.addEventListener('click', () => {
+    if (!button.disabled) {
+      goToProductStep(Number(button.dataset.productStepTarget));
+    }
+  });
+});
+
+els.posterSteps.forEach((button) => {
+  button.addEventListener('click', () => {
+    if (!button.disabled) {
+      goToPosterStep(Number(button.dataset.posterStepTarget));
     }
   });
 });
@@ -1358,6 +1987,14 @@ updateRoomModeUI();
    =================================================================== */
 
 document.querySelector('#expertToAgent')?.addEventListener('click', function () {
+  switchMode('agent');
+});
+
+document.querySelector('#productToAgent')?.addEventListener('click', function () {
+  switchMode('agent');
+});
+
+document.querySelector('#posterToAgent')?.addEventListener('click', function () {
   switchMode('agent');
 });
 
@@ -1585,13 +2222,20 @@ function enterMode(mode) {
     els.expertPanel.hidden = false;
     if (topbarToExpert) topbarToExpert.hidden = true;
     if (topbarToAgent) topbarToAgent.hidden = false;
-    updateRoomModeUI();
-    if (state.sofaFile) els.analyzeSofaBtn.disabled = false;
-    if (state.roomAnalysis) { els.roomAnalysisBox.textContent = state.roomAnalysis; els.roomAnalysisBox.hidden = false; }
-    if (state.sofaAnalysis) { els.sofaAnalysisBox.textContent = state.sofaAnalysis; els.sofaAnalysisBox.hidden = false; }
-    if (state.roomAnalysis && state.sofaAnalysis) goToStep(3);
-    else if (state.roomAnalysis) goToStep(2);
-    else goToStep(1);
+    if (state.expertWorkflow === 'product') {
+      switchExpertWorkflow('product');
+    } else if (state.expertWorkflow === 'poster') {
+      switchExpertWorkflow('poster');
+    } else {
+      updateRoomModeUI();
+      if (state.sofaFile) els.analyzeSofaBtn.disabled = false;
+      if (state.roomAnalysis) { els.roomAnalysisBox.textContent = state.roomAnalysis; els.roomAnalysisBox.hidden = false; }
+      if (state.sofaAnalysis) { els.sofaAnalysisBox.textContent = state.sofaAnalysis; els.sofaAnalysisBox.hidden = false; }
+      if (state.roomAnalysis && state.sofaAnalysis) state.currentStep = 3;
+      else if (state.roomAnalysis) state.currentStep = 2;
+      else state.currentStep = 1;
+      switchExpertWorkflow('placement');
+    }
   }
 }
 
