@@ -373,7 +373,7 @@ function getGeneratedImageExtension(mimeType) {
 }
 
 async function uploadGeneratedImageBuffer(token, imageBuffer, mimeType) {
-  const candidates = [token.uploadUrl, token.proxyUploadUrl, token.ossUploadUrl].filter(Boolean);
+  const candidates = [token.proxyUploadUrl, token.uploadUrl, token.ossUploadUrl].filter(Boolean);
   let lastError = null;
 
   for (const uploadUrl of [...new Set(candidates)]) {
@@ -385,12 +385,14 @@ async function uploadGeneratedImageBuffer(token, imageBuffer, mimeType) {
       });
       if (response.ok) return;
       lastError = new Error(`生成图片上传失败（HTTP ${response.status}）。`);
-      if (response.status !== 413) break;
     } catch (error) {
       lastError = error;
     }
   }
 
+  if (lastError && !Number.isInteger(lastError.statusCode)) {
+    lastError.statusCode = 502;
+  }
   throw lastError || new Error('图片上传签名返回异常。');
 }
 
