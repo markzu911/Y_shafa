@@ -993,8 +993,8 @@ function cleanPosterCopyLine(value, fallback, maxLength) {
     .replace(/[“”"]/g, '')
     .trim();
   const forbiddenPattern = /[A-Za-z0-9０-９￥¥%％折元]|林氏|京东|天猫|LINSY|品牌|旗舰店/i;
-  if (!text || forbiddenPattern.test(text)) return fallback;
-  return Array.from(text).slice(0, maxLength).join('');
+  if (!text || forbiddenPattern.test(text) || Array.from(text).length > maxLength) return fallback;
+  return text;
 }
 
 function normalizePosterPrice(value) {
