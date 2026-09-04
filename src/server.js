@@ -1447,6 +1447,21 @@ async function handleGeneratePoster(req, res) {
   const eventTextPrompt = plan.copy.requiredEventText.length > 0
     ? `用户明确要求展示的活动名称为：${plan.copy.requiredEventText.map((text) => `“${text}”`).join('、')}。由你根据版面选择位置和字体层级，但每项都必须完整、清晰、逐字准确地出现。`
     : '用户没有要求展示额外活动名称，不要自行添加活动名称、活动日期、折扣或期限。';
+  const permittedPosterText = [...new Set([
+    plan.copy.headline,
+    plan.copy.subtitle,
+    plan.copy.handwrittenCopy,
+    ...plan.copy.requiredEventText,
+    ...plan.copy.verticalSellingPoints.flatMap((point) => [point.title, point.description]),
+    ...plan.copy.horizontalSellingPoints.flatMap((point) => [point.title, point.description]),
+    ...(price ? [`到手价 ¥${price} 起`, '立即抢购'] : [])
+  ].filter(Boolean))];
+  const exactTextPrompt = [
+    '中文文字准确性是硬性要求，优先级高于字体创意、装饰效果和参考图的文字风格。',
+    `画面唯一允许出现的文字为：${permittedPosterText.map((text) => `“${text}”`).join('、')}。只复制中文引号内的内容，引号本身不要出现在画面中。`,
+    '把每一项文案当作固定文字逐字绘制，不得改写、缩写、增字、漏字或用形似字符替代。文字不能作为纹理、图案或不可辨认的装饰符号重复填充。',
+    '生成完毕前逐项对照上述文字白名单检查字形。若书法、倾斜、变形、描边或其他字体效果可能造成错字、伪汉字、笔画粘连或识读困难，必须放弃该效果并改用清晰的标准中文印刷字体。'
+  ].join('\n');
   const validationDetail = [
     '标题、副标题与手写文案',
     ...(plan.copy.requiredEventText.length > 0 ? ['活动名称'] : []),
@@ -1477,6 +1492,7 @@ async function handleGeneratePoster(req, res) {
     handwrittenPrompt,
     featureModulePrompt,
     pricePrompt,
+    exactTextPrompt,
     '画面只允许出现上述中文主标题、副标题、活动名称、手写情绪文案、卖点和可选价格区域。不要加入英文、拼音、字母、品牌名、Logo、水印或其他无关文字，也不要自行添加折扣、期限或日期。',
     '所有指定文案都必须逐字照写，不得同义改写。输出前逐个检查每个汉字，确保结构标准、笔画完整、没有粘连、残缺、重影、伪汉字或需要猜测才能辨认的字形。',
     `输出清晰度 ${resolution}，画面比例 ${ratio}。`
