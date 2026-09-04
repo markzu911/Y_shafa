@@ -482,6 +482,55 @@ function getOpenAIApiUrl(pathname) {
   return `${apiBase}/${String(pathname).replace(/^\/+/, '')}`;
 }
 
+async function downloadOpenAIImage(imageUrl) {
+  let url;
+  try {
+    url = new URL(imageUrl);
+  } catch {
+    const error = new Error('OpenAI 图片下载失败：接口返回的图片地址无效。');
+    error.statusCode = 424;
+    throw error;
+  }
+
+  if (url.protocol !== 'https:') {
+    const error = new Error('OpenAI 图片下载失败：接口返回的图片地址不是 HTTPS。');
+    error.statusCode = 424;
+    throw error;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const mimeType = String(response.headers.get('content-type') || '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (!mimeType.startsWith('image/')) {
+      throw new Error('返回内容不是图片');
+    }
+
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
+    if (imageBuffer.length === 0) {
+      throw new Error('返回的图片为空');
+    }
+
+    return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
+  } catch (cause) {
+    const reason = cause?.name === 'AbortError' ? '请求超时' : cause?.message || '未知错误';
+    const error = new Error(`OpenAI 图片下载失败：${reason}。`);
+    error.statusCode = 424;
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function generatePosterImageWithOpenAI({ prompt, images, resolution, ratio }) {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('请先设置 OPENAI_API_KEY 环境变量。');
@@ -524,13 +573,22 @@ async function generatePosterImageWithOpenAI({ prompt, images, resolution, ratio
           throw error;
         }
       } else {
-        const imageData = payload?.data?.[0]?.b64_json;
-        if (!imageData) {
-          throw new Error('OpenAI 图片生成失败：接口没有返回图片数据。');
+        const imageResult = payload?.data?.[0];
+        let image;
+
+        if (imageResult?.b64_json) {
+          image = `data:image/png;base64,${imageResult.b64_json}`;
+        } else if (imageResult?.url) {
+          image = await downloadOpenAIImage(imageResult.url);
+        } else {
+          const error = new Error('OpenAI 图片生成失败：接口没有返回图片数据或图片地址。');
+          error.statusCode = 424;
+          throw error;
         }
+
         return {
-          image: `data:image/png;base64,${imageData}`,
-          text: payload?.data?.[0]?.revised_prompt || ''
+          image,
+          text: imageResult.revised_prompt || ''
         };
       }
     } catch (error) {
