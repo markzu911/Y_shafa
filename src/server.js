@@ -338,21 +338,6 @@ function extractResponse(payload) {
   return { text, image };
 }
 
-async function postSaasJson(pathname, body) {
-  const response = await fetch(new URL(pathname, SAAS_API_BASE), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.success === false) {
-    const error = new Error(payload.error || payload.message || `SaaS 接口请求失败：HTTP ${response.status}`);
-    error.statusCode = response.status >= 500 ? 502 : response.status;
-    throw error;
-  }
-  return payload;
-}
-
 function createGeneratedImageSignature(imageUrl) {
   return createHmac('sha256', process.env.OPENAI_API_KEY || '')
     .update(imageUrl)
@@ -366,37 +351,7 @@ function hasValidGeneratedImageSignature(imageUrl, signature) {
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
-function getGeneratedImageExtension(mimeType) {
-  if (mimeType === 'image/jpeg') return 'jpg';
-  if (mimeType === 'image/webp') return 'webp';
-  return 'png';
-}
-
-async function uploadGeneratedImageBuffer(token, imageBuffer, mimeType) {
-  const candidates = [token.proxyUploadUrl, token.uploadUrl, token.ossUploadUrl].filter(Boolean);
-  let lastError = null;
-
-  for (const uploadUrl of [...new Set(candidates)]) {
-    try {
-      const response = await fetch(new URL(uploadUrl, SAAS_API_BASE), {
-        method: token.method || 'PUT',
-        headers: token.headers || { 'Content-Type': mimeType },
-        body: imageBuffer
-      });
-      if (response.ok) return;
-      lastError = new Error(`生成图片上传失败（HTTP ${response.status}）。`);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (lastError && !Number.isInteger(lastError.statusCode)) {
-    lastError.statusCode = 502;
-  }
-  throw lastError || new Error('图片上传签名返回异常。');
-}
-
-async function handleGeneratedImageUpload(req, res) {
+async function handleGeneratedImageDownload(req, res) {
   const rawBody = await readBody(req);
   let body;
   try {
@@ -409,13 +364,6 @@ async function handleGeneratedImageUpload(req, res) {
 
   const imageUrl = String(body.imageUrl || '');
   const signature = String(body.signature || '');
-  const userId = String(body.userId || '').trim();
-  const toolId = String(body.toolId || '').trim();
-  if (!userId || !toolId) {
-    const error = new Error('缺少 SaaS 用户或工具信息。');
-    error.statusCode = 400;
-    throw error;
-  }
   if (!hasValidGeneratedImageSignature(imageUrl, signature)) {
     const error = new Error('生成图片上传凭证无效，请重新生成。');
     error.statusCode = 403;
@@ -423,40 +371,14 @@ async function handleGeneratedImageUpload(req, res) {
   }
 
   const asset = await downloadOpenAIImageAsset(imageUrl);
-  const safePrefix = String(body.filePrefix || 'sofa-poster')
-    .replace(/[^a-z0-9-]/gi, '')
-    .slice(0, 40) || 'sofa-poster';
-  const fileName = `${safePrefix}-${Date.now()}.${getGeneratedImageExtension(asset.mimeType)}`;
-  const requestContext = { userId, toolId };
-  const tokenPayload = await postSaasJson('/api/upload/direct-token', {
-    ...requestContext,
-    source: 'result',
-    fileName,
-    mimeType: asset.mimeType,
-    fileSize: asset.buffer.length
+  setCorsHeaders(res);
+  res.writeHead(200, {
+    'Content-Type': asset.mimeType,
+    'Content-Length': asset.buffer.length,
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff'
   });
-  const token = tokenPayload.data || tokenPayload;
-  if (!(token.uploadUrl || token.proxyUploadUrl || token.ossUploadUrl) || !token.objectKey) {
-    throw new Error('图片上传签名返回异常。');
-  }
-
-  await uploadGeneratedImageBuffer(token, asset.buffer, asset.mimeType);
-  const commitPayload = await postSaasJson('/api/upload/commit', {
-    ...requestContext,
-    source: 'result',
-    objectKey: token.objectKey,
-    fileSize: asset.buffer.length
-  });
-  const commit = commitPayload.data || commitPayload;
-  const savedToRecords = commitPayload.savedToRecords === true
-    || commitPayload.image?.savedToRecords === true
-    || commit.savedToRecords === true
-    || commit.image?.savedToRecords === true;
-  if (!savedToRecords) {
-    throw new Error('生成图片未成功入库。');
-  }
-
-  sendJson(res, 200, { success: true, savedToRecords: true });
+  res.end(asset.buffer);
 }
 
 function extractJsonObject(text) {
@@ -1713,8 +1635,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/generated-image/upload') {
-      await handleGeneratedImageUpload(req, res);
+    if (req.method === 'POST' && url.pathname === '/api/generated-image/download') {
+      await handleGeneratedImageDownload(req, res);
       return;
     }
 

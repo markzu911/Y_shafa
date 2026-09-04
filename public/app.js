@@ -330,6 +330,30 @@ async function imageDataUrlToBlob(dataUrl) {
   return response.blob();
 }
 
+async function fetchGeneratedImageBlob(imageUrl, signature) {
+  let response;
+  try {
+    response = await fetch('/api/generated-image/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl, signature })
+    });
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error, '生成图片读取'));
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(getHttpErrorMessage(response, payload, '生成图片读取'));
+  }
+
+  const blob = await response.blob();
+  if (!blob.type.startsWith('image/') || blob.size === 0) {
+    throw new Error('生成图片读取失败：服务端没有返回有效图片。');
+  }
+  return blob;
+}
+
 async function dataUrlToImageElement(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -346,7 +370,7 @@ function getImageExtension(mimeType) {
 }
 
 async function putGeneratedBlob(token, blob, mimeType) {
-  const candidates = [token.uploadUrl, token.proxyUploadUrl, token.ossUploadUrl].filter(Boolean);
+  const candidates = [token.proxyUploadUrl, token.uploadUrl, token.ossUploadUrl].filter(Boolean);
   const uniqueCandidates = [...new Set(candidates)];
   let lastError = null;
 
@@ -361,7 +385,6 @@ async function putGeneratedBlob(token, blob, mimeType) {
       if (response.ok) return;
 
       lastError = new Error(`生成图片上传失败（HTTP ${response.status}）。`);
-      if (response.status !== 413) break;
     } catch (error) {
       lastError = error;
     }
@@ -373,16 +396,9 @@ async function putGeneratedBlob(token, blob, mimeType) {
 async function uploadGeneratedImage(imageDataUrl, filePrefix = 'sofa-placement', imageUploadSignature = '') {
   if (!hasSaasContext()) return null;
 
-  if (imageUploadSignature && /^https:\/\//i.test(imageDataUrl)) {
-    return postJson('/api/generated-image/upload', {
-      ...getSaasRequestBody(),
-      imageUrl: imageDataUrl,
-      signature: imageUploadSignature,
-      filePrefix
-    });
-  }
-
-  const blob = await imageDataUrlToBlob(imageDataUrl);
+  const blob = imageUploadSignature && /^https:\/\//i.test(imageDataUrl)
+    ? await fetchGeneratedImageBlob(imageDataUrl, imageUploadSignature)
+    : await imageDataUrlToBlob(imageDataUrl);
   const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
   const extension = getImageExtension(mimeType);
   const fileName = `${filePrefix}-${Date.now()}.${extension}`;
