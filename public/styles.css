@@ -1274,7 +1274,7 @@ legend {
 .poster-generated-frame {
   aspect-ratio: 3 / 4;
   min-height: 0;
-  width: min(100%, 700px);
+  width: min(100%, 560px);
   margin-inline: auto;
 }
 
@@ -1284,7 +1284,10 @@ legend {
 
 .poster-generated-frame img.has-image {
   min-height: 0;
+  width: auto;
+  max-width: 100%;
   height: auto;
+  max-height: min(680px, calc(100svh - 176px));
   object-fit: contain;
 }
 
@@ -1648,7 +1651,7 @@ body.is-modal-open {
   }
 
   .poster-generated-frame {
-    width: 100%;
+    width: min(100%, 560px);
   }
 
   .poster-reference-control {

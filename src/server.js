@@ -1129,7 +1129,7 @@ function normalizePosterFeatureGroups(rawPlan, hasReference) {
   const verticalSellingPoints = cleanGroup(rawPlan.verticalSellingPoints);
   const horizontalSellingPoints = cleanGroup(rawPlan.horizontalSellingPoints);
 
-  while (verticalSellingPoints.length + horizontalSellingPoints.length > 7) {
+  while (verticalSellingPoints.length + horizontalSellingPoints.length > 4) {
     if (verticalSellingPoints.length > horizontalSellingPoints.length && verticalSellingPoints.length > 1) {
       verticalSellingPoints.pop();
     } else if (horizontalSellingPoints.length > 1) {
@@ -1224,13 +1224,14 @@ async function validatePosterText(image, copy, price) {
         '你是严格的中文商品海报质检员。请逐字检查画面中的全部中文，包括主标题、副标题、活动名称、手写情绪文案、每条卖点、价格区和按钮文案，并检查每个卖点图标与邻近卖点的语义对应关系。',
         `画面允许出现且必须逐字正确、完整、清晰的文案为：${expectedText.map((text) => `“${text}”`).join('、')}。允许换行、竖排或倾斜排版，但不得同义改写、增删文字或出现其他文字。`,
         '逐个观察所有汉字的字形和笔画。即使可以根据上下文猜出含义，只要存在缺笔、多笔、粘连、拆裂、偏旁错误、伪汉字、形似错字、重影或模糊到需要猜测，都必须判定 standardChineseGlyphs 为 false。',
+        '重点放大检查字号最小的副标题、卖点说明和价格文字。只要任意两个相邻汉字的笔画相互接触、交叠、融合，或字距过密导致无法清楚分辨字符边界，必须判定 clearCharacterSeparation 为 false；不能仅凭上下文猜出文案就判定通过。',
         '识别画面中所有可见文字并写入 detectedText。若出现允许文案之外的字符、乱码、残缺文字、装饰性伪文字或无法可靠识别的字形，必须判定 noUnexpectedText 为 false。',
         requiresIconValidation
           ? `逐项检查以下图标映射：${iconMappings.join('；')}。每个图标必须紧邻对应卖点，并能直观表达该卖点的物体、身体部位、结构或动作；无关装饰图形、抽象符号、错位图标或重复套用同一图标均不通过。`
           : '本次不要求检查预设卖点图标。',
         '只有全部允许文案逐字一致、字形标准、清晰可辨、没有任何额外或无法识别的文字，并且所有要求的卖点图标语义匹配时才能通过。宁可严格判定失败，也不要放过疑似乱码。',
         '只返回合法 JSON，不要 Markdown，不要解释，结构为：',
-        '{"valid":true,"allExpectedTextPresent":true,"exactText":true,"legible":true,"standardChineseGlyphs":true,"noUnexpectedText":true,"iconsMatchFeatures":true,"detectedText":["识别到的全部文字"],"issues":[]}'
+        '{"valid":true,"allExpectedTextPresent":true,"exactText":true,"legible":true,"standardChineseGlyphs":true,"clearCharacterSeparation":true,"noUnexpectedText":true,"iconsMatchFeatures":true,"detectedText":["识别到的全部文字"],"issues":[]}'
       ].join('\n')
     },
     { text: '待校验的完整商品海报。' },
@@ -1250,6 +1251,7 @@ async function validatePosterText(image, copy, price) {
     && raw.exactText === true
     && raw.legible === true
     && raw.standardChineseGlyphs === true
+    && raw.clearCharacterSeparation === true
     && raw.noUnexpectedText === true
     && allExpectedTextDetected
     && iconsMatchFeatures;
@@ -1262,7 +1264,7 @@ async function validatePosterText(image, copy, price) {
       ? issues
       : valid
         ? []
-        : [iconsMatchFeatures ? '画面文字未通过逐字、字形或乱码校验' : '卖点图标与邻近特点的语义不匹配']
+        : [iconsMatchFeatures ? '画面文字未通过逐字、字形、字距或乱码校验' : '卖点图标与邻近特点的语义不匹配']
   };
 }
 
@@ -1351,7 +1353,7 @@ async function handleGeneratePoster(req, res) {
     hasReference
       ? '本次参考图模式不强制预设卖点模块，verticalSellingPoints 和 horizontalSellingPoints 都返回空数组。'
       : [
-          '生成总计 4 至 7 个互不重复、有明确购买价值的沙发卖点，并由你根据构图自由分配到 verticalSellingPoints 和 horizontalSellingPoints；两个数组都至少包含 1 项。每项包含 title、description 和 icon：title 最多 4 个汉字，description 最多 8 个汉字；标题优先表达用户利益，说明补充可见依据。',
+          '只生成 4 个互不重复、有明确购买价值的沙发卖点，verticalSellingPoints 和 horizontalSellingPoints 各 2 项。每项包含 title、description 和 icon：title 最多 4 个汉字，description 最多 8 个汉字；标题优先表达用户利益，说明补充可见依据。不要增加第五个卖点，避免文案过密。',
           '卖点从舒适性、功能性、结构性、材质、人体工学五个方向中选择当前沙发最强的项目，不要求每类都出现。舒适性依据坐垫、靠背、扶手等可见形态；功能性只写图片中明确可见的调节把手、控制键、组合或收纳结构；结构性描述可见的分区、承托、层次和支撑结构；材质只写可辨认的表面观感与纹理；人体工学只写可见的曲线、分区与角度。',
           'icon 必须为与该条卖点一一对应的具象线性图标画面说明，明确要画的物体、身体部位、结构或动作，让人不看文字也能大致理解含义。不得用叶子、星星、盾牌、火焰、皇冠、闪光或无意义几何图形代替具体语义，也不得让多条卖点共用同一个图标。',
           '禁止“清晰轮廓、比例协调、线条流畅、色彩耐看、造型完整、外观大气、简约百搭、颜值在线、品质之选”等空泛外观评价。不得虚构内部填充、不可见机构、真皮等级、承重、环保、耐用性、医疗效果或量化性能。若可靠卖点不足 4 项，可以用克制的通用舒适性利益补足，但不得补写具体材料、机构或性能。'
@@ -1415,12 +1417,14 @@ async function handleGeneratePoster(req, res) {
   const typographyPrompt = hasReference
     ? [
         '字体、字级、行距、字距、对齐方式和文字区域位置以输入图二的参考海报为最高优先级；只借鉴设计语言，不复制原文。图一的默认排版规则只补充参考图没有明确表达的部分。',
-        '所有中文必须笔画完整、边缘清晰、比例自然，标题、副标题、卖点和价格形成明确且统一的视觉层级。'
+        '所有中文必须笔画完整、边缘清晰、比例自然，标题、副标题、卖点和价格形成明确且统一的视觉层级。参考图若使用过小、过密或相互粘连的文字，不得沿用该缺陷。',
+        '禁止微型中文。任何中文单字的视觉字高不得低于画面短边的 3%，卖点标题不得低于 4%；相邻汉字必须保持清楚间隔，不能接触、交叠或融合。'
       ].join('\n')
     : [
         '文字排版是本次海报的重点。先分析当前沙发的材质、结构、功能和整体气质，再选择与之匹配的中文字体组合。主标题内部允许自由混合字体、字号和字重，不要求每个字、每一行或每个词大小一致；用显著字级差突出最重要的词。',
         '副标题和卖点根据版面选择清晰、协调的中文字体，不要把全画面都做成楷体或同一种书法字。通过字号、字重、留白、行距和对齐建立层级，避免普通系统默认字体、廉价艺术字或伪中文字体。',
-        '允许仅为提升背景对比度加入非常克制的细描边或柔和短阴影；禁止立体字、厚重描边、发光字、气泡字、霓虹字、金属浮雕和夸张拉伸变形。所有汉字笔画必须完整、清晰、自然；宁可简化字体造型，也不能生成伪汉字、形似错字或粘连笔画。'
+        '禁止微型中文。任何中文单字的视觉字高不得低于画面短边的 3%，卖点标题不得低于 4%；相邻汉字必须保持清楚间隔，不能接触、交叠或融合。若版面空间不足，优先减少装饰和扩大文字区域，不能缩小文字。',
+        '允许仅为提升背景对比度加入非常克制的细描边或柔和短阴影；禁止立体字、厚重描边、发光字、气泡字、霓虹字、金属浮雕、窄体压缩和夸张拉伸变形。所有汉字笔画必须完整、清晰、自然；宁可简化字体造型，也不能生成伪汉字、形似错字或粘连笔画。'
       ].join('\n');
   const compositionPrompt = hasReference
     ? '整体构图以输入图二的用户参考海报为最高优先级；只在参考图没有明确安排的区域补充默认规则。'
@@ -1460,6 +1464,7 @@ async function handleGeneratePoster(req, res) {
     '中文文字准确性是硬性要求，优先级高于字体创意、装饰效果和参考图的文字风格。',
     `画面唯一允许出现的文字为：${permittedPosterText.map((text) => `“${text}”`).join('、')}。只复制中文引号内的内容，引号本身不要出现在画面中。`,
     '把每一项文案当作固定文字逐字绘制，不得改写、缩写、增字、漏字或用形似字符替代。文字不能作为纹理、图案或不可辨认的装饰符号重复填充。',
+    '每个汉字必须拥有独立、完整的字形边界，相邻字符之间留出清楚字距，任何笔画都不能跨字连接、相互粘连或重叠。',
     '生成完毕前逐项对照上述文字白名单检查字形。若书法、倾斜、变形、描边或其他字体效果可能造成错字、伪汉字、笔画粘连或识读困难，必须放弃该效果并改用清晰的标准中文印刷字体。'
   ].join('\n');
   const validationDetail = [
@@ -1488,7 +1493,7 @@ async function handleGeneratePoster(req, res) {
     eventTextPrompt,
     compositionPrompt,
     typographyPrompt,
-    '文字方向不必全部水平：可以横排、竖排、倾斜、错落或沿弧线路径排列，并可使用任意角度；由整体视觉效果决定，但主标题、副标题、卖点和价格仍须可辨认。',
+    '文字方向不必全部水平：主标题和手写情绪文案可以横排、竖排、倾斜或错落；字号较小的副标题、卖点说明和价格必须使用横排或清晰竖排，不得沿弧线、挤压、重叠或使用影响字形分离的角度。',
     handwrittenPrompt,
     featureModulePrompt,
     pricePrompt,
@@ -1520,7 +1525,7 @@ async function handleGeneratePoster(req, res) {
       : [
           '',
           `这是第 ${attempt} 次生成。上一张海报的内容校验未通过：${validation.issues.join('；')}。`,
-          '最后一张输入图是上一版未通过校验的海报，只参考它可取的视觉设计，不要复制其中的错误文字、伪汉字或错误图标。必须逐字修正主标题、副标题、手写情绪文案、用户活动名称、全部卖点、价格区域，以及卖点图标与邻近特点的对应关系；任何文案都不得同义改写。'
+          '最后一张输入图是上一版未通过校验的海报，只参考它可取的视觉设计，不要复制其中的错误文字、伪汉字或错误图标。必须逐字修正主标题、副标题、手写情绪文案、用户活动名称、全部卖点、价格区域，以及卖点图标与邻近特点的对应关系；放大字号并拉开字距，确保相邻汉字笔画完全分离。任何文案都不得同义改写。'
         ].join('\n');
     const imageInputs = [
       files.sofaImage,
