@@ -18,6 +18,7 @@ const OPENAI_API_BASE_URL = (process.env.OPENAI_API_BASE_URL || 'http://192.168.
 const MAX_BODY_BYTES = 20 * 1024 * 1024;
 const GEMINI_REQUEST_TIMEOUT_MS = getPositiveInteger(process.env.GEMINI_REQUEST_TIMEOUT_MS, 120000);
 const OPENAI_REQUEST_TIMEOUT_MS = getPositiveInteger(process.env.OPENAI_REQUEST_TIMEOUT_MS, 180000);
+const POSTER_STREAM_HEARTBEAT_MS = 15000;
 const SAAS_API_BASE = process.env.SAAS_API_BASE || 'http://aibigtree.com';
 
 if (!process.env.GEMINI_API_KEY) {
@@ -575,11 +576,14 @@ async function generatePosterImageWithOpenAI({ prompt, images, resolution, ratio
       } else {
         const imageResult = payload?.data?.[0];
         let image;
+        let deliveryImage;
 
         if (imageResult?.b64_json) {
           image = `data:image/png;base64,${imageResult.b64_json}`;
+          deliveryImage = image;
         } else if (imageResult?.url) {
           image = await downloadOpenAIImage(imageResult.url);
+          deliveryImage = imageResult.url;
         } else {
           const error = new Error('OpenAI 图片生成失败：接口没有返回图片数据或图片地址。');
           error.statusCode = 424;
@@ -588,6 +592,7 @@ async function generatePosterImageWithOpenAI({ prompt, images, resolution, ratio
 
         return {
           image,
+          deliveryImage,
           text: imageResult.revised_prompt || ''
         };
       }
@@ -1229,8 +1234,14 @@ async function handleGeneratePoster(req, res) {
   res.writeHead(200, {
     'Content-Type': 'application/x-ndjson; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
     'X-Content-Type-Options': 'nosniff'
   });
+  res.flushHeaders?.();
+  const heartbeat = setInterval(() => {
+    writePosterStreamEvent(res, { type: 'heartbeat' });
+  }, POSTER_STREAM_HEARTBEAT_MS);
+  heartbeat.unref?.();
 
   try {
     writePosterStreamEvent(res, {
@@ -1484,7 +1495,7 @@ async function handleGeneratePoster(req, res) {
   writePosterStreamEvent(res, {
     type: 'result',
     payload: {
-      image: result.image,
+      image: result.deliveryImage || result.image,
       copy: plan.copy,
       artDirection: plan.artDirection,
       note: plan.artDirection.concept,
@@ -1510,6 +1521,8 @@ async function handleGeneratePoster(req, res) {
       error: getClientErrorMessage(error)
     });
     res.end();
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
