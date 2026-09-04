@@ -43,6 +43,7 @@ const state = {
     uploadCommitUrl: '/api/upload/commit'
   },
   mode: 'agent',
+  agentWorkflow: '',
   agentStep: 'welcome',
   chatMessages: [],
   chatLoading: false
@@ -139,7 +140,8 @@ const els = {
   chatSendBtn: document.querySelector('#chatSendBtn'),
   chatInputBar: document.querySelector('#chatInputBar'),
   agentRoomInput: document.querySelector('#agentRoomInput'),
-  agentSofaInput: document.querySelector('#agentSofaInput')
+  agentSofaInput: document.querySelector('#agentSofaInput'),
+  agentReferenceInput: document.querySelector('#agentReferenceInput')
 };
 
 const virtualStyleDescriptions = {
@@ -368,8 +370,17 @@ async function putGeneratedBlob(token, blob, mimeType) {
   throw lastError || new Error('生成图片上传失败。');
 }
 
-async function uploadGeneratedImage(imageDataUrl, filePrefix = 'sofa-placement') {
+async function uploadGeneratedImage(imageDataUrl, filePrefix = 'sofa-placement', imageUploadSignature = '') {
   if (!hasSaasContext()) return null;
+
+  if (imageUploadSignature && /^https:\/\//i.test(imageDataUrl)) {
+    return postJson('/api/generated-image/upload', {
+      ...getSaasRequestBody(),
+      imageUrl: imageDataUrl,
+      signature: imageUploadSignature,
+      filePrefix
+    });
+  }
 
   const blob = await imageDataUrlToBlob(imageDataUrl);
   const mimeType = blob.type || imageDataUrl.match(/^data:([^;]+)/)?.[1] || 'image/png';
@@ -880,9 +891,20 @@ function renderChatMessages() {
   if (!els.chatMessages) return;
   els.chatMessages.innerHTML = '';
 
-  state.chatMessages.forEach(function (msg) {
+  var activeInteractiveIndex = -1;
+  state.chatMessages.forEach(function (msg, index) {
+    if (msg.type === 'options' || msg.type === 'image-upload') {
+      activeInteractiveIndex = index;
+    }
+  });
+
+  state.chatMessages.forEach(function (msg, messageIndex) {
+    var isCurrentInteractive = messageIndex === activeInteractiveIndex && !state.chatLoading;
     var row = document.createElement('div');
     row.className = 'msg-row msg--' + msg.role;
+    if (msg.compact) {
+      row.className += ' msg--compact';
+    }
     if (msg.type === 'error') {
       row.className += ' msg--error';
     }
@@ -922,14 +944,17 @@ function renderChatMessages() {
           chip.textContent = opt.label;
           chip.dataset.action = opt.action;
           chip.dataset.payload = opt.payload || '';
+          chip.disabled = !isCurrentInteractive;
           chips.appendChild(chip);
         });
         bubble.appendChild(chips);
       }
     } else if (msg.type === 'image-upload') {
       bubble.innerHTML = '<p>' + formatContent(msg.content) + '</p>';
-      var zone = document.createElement('div');
+      var zone = document.createElement('button');
       zone.className = 'chat-upload-zone';
+      zone.type = 'button';
+      zone.disabled = !isCurrentInteractive;
       zone.dataset.target = msg.target || '';
       zone.innerHTML =
         '<span class="upload-icon-inline">+</span>' +
@@ -971,7 +996,7 @@ function renderChatMessages() {
         var dl = document.createElement('a');
         dl.className = 'download-link-inline';
         dl.href = msg.imageUrl;
-        dl.download = 'sofa-placement.png';
+        dl.download = msg.fileName || 'sofa-placement.png';
         dl.textContent = '⬇ 下载图片';
         dl.addEventListener('click', function (e) { e.stopPropagation(); });
         footer.appendChild(meta);
@@ -1002,29 +1027,162 @@ function renderChatMessages() {
    Agent Mode — Guided Flow Engine
    =================================================================== */
 
-function isAgentStepDone() {
-  return state.agentStep === 'done';
+var agentWorkflowLabels = {
+  placement: '空间摆放图',
+  product: '产品图',
+  poster: '海报模式'
+};
+
+function syncSegmentedControl(groupName, value) {
+  var group = document.querySelector('.segmented[data-group="' + groupName + '"]');
+  if (!group) return;
+
+  group.querySelectorAll('button').forEach(function (button) {
+    var selected = button.dataset.value === String(value);
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
 }
 
-function getCurrentAgentContext() {
-  return {
-    hasRoom: Boolean(state.roomAnalysis),
-    hasSofa: Boolean(state.sofaAnalysis && state.sofaFile),
-    roomMode: state.roomMode,
-    hasRoomFile: Boolean(state.roomFile),
-    hasSofaFile: Boolean(state.sofaFile),
-    paramsSet: true
+function clearImagePreview(image) {
+  if (!image) return;
+  image.removeAttribute('src');
+  image.classList.remove('has-image');
+}
+
+function getReusableSofaContext() {
+  var workflowContexts = {
+    placement: { file: state.sofaFile, analysis: state.sofaAnalysis },
+    product: { file: state.productSofaFile, analysis: state.productSofaAnalysis },
+    poster: { file: state.posterSofaFile, analysis: state.posterSofaAnalysis }
   };
+  var preferred = workflowContexts[state.agentWorkflow];
+  var candidates = [
+    preferred,
+    workflowContexts.placement,
+    workflowContexts.product,
+    workflowContexts.poster
+  ];
+
+  return candidates.find(function (context) {
+    return context && context.file && context.analysis;
+  }) || null;
+}
+
+function syncReusableSofaContext(file, analysis) {
+  state.sofaFile = file;
+  state.productSofaFile = file;
+  state.posterSofaFile = file;
+  state.sofaAnalysis = analysis || '';
+  state.productSofaAnalysis = analysis || '';
+  state.posterSofaAnalysis = analysis || '';
+
+  [els.sofaPreview, els.productSofaPreview, els.posterSofaPreview].forEach(function (image) {
+    if (file) previewFile(file, image);
+  });
+  [els.sofaAnalysisBox, els.productSofaAnalysisBox, els.posterSofaAnalysisBox].forEach(function (box) {
+    box.textContent = analysis || '';
+    box.hidden = !analysis;
+  });
+  els.analyzeSofaBtn.disabled = !file;
+  els.analyzeProductSofaBtn.disabled = !file;
+  els.analyzePosterSofaBtn.disabled = !file;
+}
+
+function addAgentSofaUpload() {
+  addChatMessage('assistant', 'image-upload',
+    '请上传需要处理的**沙发图片** 🛋️',
+    { target: 'agentSofaInput', uploadLabel: '点击上传沙发图片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+  state.agentStep = 'awaiting-sofa-upload';
+}
+
+function showAgentWorkflowOptions(content) {
+  addChatMessage('assistant', 'options', content || '请选择你要生成的图片类型：', {
+    options: [
+      { label: '🏠 空间摆放图', action: 'pick-workflow', payload: 'placement' },
+      { label: '🛋️ 产品图', action: 'pick-workflow', payload: 'product' },
+      { label: '🖼️ 海报模式', action: 'pick-workflow', payload: 'poster' }
+    ]
+  });
+  state.agentStep = 'awaiting-workflow';
+}
+
+function askAgentRoomSource() {
+  addChatMessage('assistant', 'options', '请选择**房间来源**：', {
+    options: [
+      { label: '📷 上传房间照片', action: 'pick-room-source', payload: 'upload' },
+      { label: '🏠 虚拟房间', action: 'pick-room-source', payload: 'virtual' }
+    ]
+  });
+  state.agentStep = 'awaiting-room-source';
+}
+
+function continueAfterAgentRoomReady() {
+  var sofaContext = getReusableSofaContext();
+  if (sofaContext) {
+    syncReusableSofaContext(sofaContext.file, sofaContext.analysis);
+    addChatMessage('assistant', 'text', '✅ 已复用之前上传并分析过的沙发。');
+    startAgentParamFlow();
+    return;
+  }
+  addAgentSofaUpload();
+}
+
+function beginAgentWorkflow(workflow) {
+  if (!agentWorkflowLabels[workflow]) return;
+
+  state.agentWorkflow = workflow;
+  state.expertWorkflow = workflow;
+  addChatMessage('assistant', 'text', '✅ 已选择 **' + agentWorkflowLabels[workflow] + '**。');
+
+  var sofaContext = getReusableSofaContext();
+  if (sofaContext) syncReusableSofaContext(sofaContext.file, sofaContext.analysis);
+
+  if (workflow === 'placement') {
+    var hasRoomContext = state.roomMode === 'virtual'
+      ? Boolean(state.roomAnalysis && state.virtualStyle)
+      : Boolean(state.roomFile && state.roomAnalysis);
+    if (hasRoomContext && sofaContext) {
+      addChatMessage('assistant', 'text', '房间和沙发信息已就绪，接下来重新选择生成参数。');
+      startAgentParamFlow();
+    } else {
+      askAgentRoomSource();
+    }
+    return;
+  }
+
+  if (sofaContext) {
+    addChatMessage('assistant', 'text', '已复用之前上传并分析过的沙发。');
+    askAgentReferenceOption();
+  } else {
+    addAgentSofaUpload();
+  }
+}
+
+function askAgentReferenceOption() {
+  var isPoster = state.agentWorkflow === 'poster';
+  var referenceLabel = isPoster ? '参考海报' : '产品摄影参考图';
+  addChatMessage('assistant', 'options', '是否上传一张**' + referenceLabel + '**？这是可选项。', {
+    options: [
+      { label: '🖼️ 上传参考图', action: 'upload-reference', payload: '' },
+      { label: '跳过', action: 'skip-reference', payload: '' }
+    ]
+  });
+  state.agentStep = 'awaiting-reference-choice';
 }
 
 function handleAgentOptionClick(action, payload, skipUserMessage, userLabel) {
   if (state.chatLoading) return;
 
   if (!skipUserMessage) {
-    addChatMessage('user', 'text', userLabel || payload || action);
+    addChatMessage('user', 'text', userLabel || payload || action, { compact: true });
   }
 
   switch (action) {
+    case 'pick-workflow':
+      beginAgentWorkflow(payload);
+      break;
+
     case 'pick-room-source':
       if (payload === 'upload') {
         state.roomMode = 'upload';
@@ -1064,47 +1222,97 @@ function handleAgentOptionClick(action, payload, skipUserMessage, userLabel) {
     case 'pick-style':
       state.virtualStyle = payload;
       state.roomAnalysis = getVirtualRoomAnalysis();
-      if (state.agentStep === 'awaiting-style-select') {
-        addChatMessage('assistant', 'text',
-          '✅ 已选择 **' + payload + '** 风格。\n\n接下来请上传你的**沙发图片** 🛋️，我会分析沙发的外形、材质和颜色。');
-        addChatMessage('assistant', 'image-upload',
-          '请上传沙发照片',
-          { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
-        state.agentStep = 'awaiting-sofa-upload';
-      } else {
-        addChatMessage('assistant', 'text',
-          '✅ 已切换为 **' + payload + '** 风格，房间分析已更新。');
-        addChatMessage('assistant', 'image-upload',
-          '请上传沙发照片 🛋️',
-          { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
-      }
+      addChatMessage('assistant', 'text', '✅ 已选择 **' + payload + '** 风格。');
+      continueAfterAgentRoomReady();
       break;
 
     case 'pick-custom-style':
       state.virtualStyle = payload;
       state.roomAnalysis = getVirtualRoomAnalysis();
-      addChatMessage('assistant', 'text',
-        '✅ 已选择自定义风格 **' + payload + '**。\n\n接下来请上传你的**沙发图片** 🛋️。');
+      addChatMessage('assistant', 'text', '✅ 已选择自定义风格 **' + payload + '**。');
+      continueAfterAgentRoomReady();
+      break;
+
+    case 'upload-reference':
       addChatMessage('assistant', 'image-upload',
-        '请上传沙发照片',
-        { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
-      state.agentStep = 'awaiting-sofa-upload';
+        '请上传一张完整、清晰的参考图片。',
+        { target: 'agentReferenceInput', uploadLabel: '点击上传参考图片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
+      state.agentStep = 'awaiting-reference-upload';
+      break;
+
+    case 'skip-reference':
+      if (state.agentWorkflow === 'product') {
+        clearProductReference();
+      } else {
+        clearPosterReference();
+      }
+      addChatMessage('assistant', 'text', '已跳过参考图。');
+      startAgentParamFlow();
       break;
 
     case 'pick-scene':
     case 'pick-model':
+    case 'pick-product-view':
     case 'pick-resolution':
     case 'pick-ratio':
     case 'pick-custom-model':
-      handleParamSelect(action, payload);
+      handleAgentParamSelect(action, payload);
+      break;
+
+    case 'set-poster-prompt':
+      state.posterPrompt = Array.from(String(payload || '').trim()).slice(0, 100).join('');
+      els.posterPromptInput.value = state.posterPrompt;
+      els.posterPromptCount.textContent = Array.from(state.posterPrompt).length + ' / 100';
+      addChatMessage('assistant', 'text', '✅ 已记录创意需求：**' + state.posterPrompt + '**');
+      askAgentPosterPrice();
+      break;
+
+    case 'skip-poster-prompt':
+      state.posterPrompt = '';
+      els.posterPromptInput.value = '';
+      els.posterPromptCount.textContent = '0 / 100';
+      addChatMessage('assistant', 'text', '已跳过创意提示词，由 AI 根据沙发自由策划。');
+      askAgentPosterPrice();
+      break;
+
+    case 'set-poster-price':
+      if (!/^[1-9]\d{0,7}$/.test(String(payload || '').trim())) {
+        addChatMessage('assistant', 'error', '价格只能填写 1 至 8 位正整数，请重新输入。');
+        askAgentPosterPrice();
+        break;
+      }
+      state.posterPrice = String(payload).trim();
+      els.posterPriceInput.value = state.posterPrice;
+      addChatMessage('assistant', 'text', '✅ 商品价格：**¥' + state.posterPrice + '**');
+      finishAgentParams();
+      break;
+
+    case 'skip-poster-price':
+      state.posterPrice = '';
+      els.posterPriceInput.value = '';
+      addChatMessage('assistant', 'text', '已跳过商品价格。');
+      finishAgentParams();
       break;
 
     case 'generate':
       handleAgentGenerate();
       break;
 
+    case 'regenerate':
+      addChatMessage('assistant', 'text', '图片和参考图已保留，请重新选择生成参数。');
+      startAgentParamFlow();
+      break;
+
+    case 'change-workflow':
+      prepareAgentWorkflowSwitch();
+      break;
+
     case 'restart':
       resetAgentChat();
+      break;
+
+    case 'switch-expert':
+      switchAgentToExpert();
       break;
 
     default:
@@ -1115,50 +1323,221 @@ function handleAgentOptionClick(action, payload, skipUserMessage, userLabel) {
   renderChatMessages();
 }
 
-function handleParamSelect(action, payload) {
+function handleAgentParamSelect(action, payload) {
   switch (action) {
     case 'pick-scene':
       state.scene = payload;
+      syncSegmentedControl('scene', payload);
       addChatMessage('assistant', 'text', '✅ 场景图：**' + payload + '**');
-      askModelOption();
+      askAgentModelOption();
       break;
     case 'pick-model':
-      state.needsModel = payload === 'true';
-      state.modelDescription = '';
-      addChatMessage('assistant', 'text', '✅ 模特：**' + (state.needsModel ? '需要' : '不需要') + '**');
-      askResolutionOption();
+      if (state.agentWorkflow === 'poster') {
+        state.posterNeedsModel = payload === 'true';
+        syncSegmentedControl('posterNeedsModel', String(state.posterNeedsModel));
+        addChatMessage('assistant', 'text', '✅ 模特：**' + (state.posterNeedsModel ? '需要' : '不需要') + '**');
+      } else {
+        state.needsModel = payload === 'true';
+        state.modelDescription = '';
+        syncSegmentedControl('needsModel', String(state.needsModel));
+        addChatMessage('assistant', 'text', '✅ 模特：**' + (state.needsModel ? '需要' : '不需要') + '**');
+      }
+      askAgentResolutionOption();
       break;
     case 'pick-custom-model':
       state.needsModel = true;
       state.modelDescription = payload;
+      syncSegmentedControl('needsModel', 'true');
       addChatMessage('assistant', 'text', '✅ 模特：**' + payload + '**');
-      askResolutionOption();
+      askAgentResolutionOption();
+      break;
+    case 'pick-product-view':
+      state.productView = payload;
+      syncSegmentedControl('productView', payload);
+      addChatMessage('assistant', 'text', '✅ 展示角度：**' + payload + '**');
+      askAgentResolutionOption();
       break;
     case 'pick-resolution':
-      state.resolution = payload;
+      if (state.agentWorkflow === 'product') {
+        state.productResolution = payload;
+        syncSegmentedControl('productResolution', payload);
+      } else if (state.agentWorkflow === 'poster') {
+        state.posterResolution = payload;
+        syncSegmentedControl('posterResolution', payload);
+      } else {
+        state.resolution = payload;
+        syncSegmentedControl('resolution', payload);
+      }
       addChatMessage('assistant', 'text', '✅ 清晰度：**' + payload + '**');
-      askRatioOption();
+      askAgentRatioOption();
       break;
     case 'pick-ratio':
-      state.ratio = payload;
+      if (state.agentWorkflow === 'product') {
+        state.productRatio = payload;
+        syncSegmentedControl('productRatio', payload);
+      } else if (state.agentWorkflow === 'poster') {
+        state.posterRatio = payload;
+        syncSegmentedControl('posterRatio', payload);
+      } else {
+        state.ratio = payload;
+        syncSegmentedControl('ratio', payload);
+      }
       addChatMessage('assistant', 'text', '✅ 比例：**' + payload + '**');
-      var summary = '✅ 参数已全部确认：\n\n' +
-        '• 场景图：**' + state.scene + '**\n' +
-        '• 模特：**' + (state.needsModel ? '需要' : '不需要') + '**\n' +
-        '• 清晰度：**' + state.resolution + '**\n' +
-        '• 比例：**' + state.ratio + '**\n\n' +
-        '一切就绪！点击下方按钮开始生成 👇';
-      addChatMessage('assistant', 'options', summary, {
-        options: [
-          { label: '🚀 开始生成效果图', action: 'generate', payload: '' }
-        ]
-      });
-      state.agentStep = 'ready-to-generate';
+      if (state.agentWorkflow === 'poster') {
+        askAgentPosterPrompt();
+      } else {
+        finishAgentParams();
+      }
       break;
   }
 }
 
-async function handleAgentGenerate() {
+function startAgentParamFlow() {
+  if (state.agentWorkflow === 'product') {
+    askAgentProductView();
+  } else if (state.agentWorkflow === 'poster') {
+    askAgentModelOption();
+  } else {
+    askAgentSceneOption();
+  }
+}
+
+function askAgentSceneOption() {
+  addChatMessage('assistant', 'options', '请选择**场景图类型**（远景 / 中近景 / 近景）：', {
+    options: [
+      { label: '🏞️ 远景图', action: 'pick-scene', payload: '远景图' },
+      { label: '📐 中近景', action: 'pick-scene', payload: '中近景' },
+      { label: '🔍 近景', action: 'pick-scene', payload: '近景' }
+    ]
+  });
+  state.agentStep = 'awaiting-scene';
+}
+
+function askAgentProductView() {
+  addChatMessage('assistant', 'options', '请选择沙发的**展示角度**：', {
+    options: [
+      { label: '正面微侧', action: 'pick-product-view', payload: '沙发正面' },
+      { label: '标准侧面', action: 'pick-product-view', payload: '沙发侧面' },
+      { label: '标准背面', action: 'pick-product-view', payload: '沙发背面' }
+    ]
+  });
+  state.agentStep = 'awaiting-product-view';
+}
+
+function askAgentModelOption() {
+  addChatMessage('assistant', 'options', '是否需要**模特**入镜？', {
+    options: [
+      { label: '👤 需要模特', action: 'pick-model', payload: 'true' },
+      { label: '🚫 不需要', action: 'pick-model', payload: 'false' }
+    ]
+  });
+  state.agentStep = 'awaiting-model';
+}
+
+function askAgentResolutionOption() {
+  addChatMessage('assistant', 'options', '请选择**清晰度**：', {
+    options: [
+      { label: '1K', action: 'pick-resolution', payload: '1K' },
+      { label: '2K', action: 'pick-resolution', payload: '2K' },
+      { label: '4K', action: 'pick-resolution', payload: '4K' }
+    ]
+  });
+  state.agentStep = 'awaiting-resolution';
+}
+
+function askAgentRatioOption() {
+  var options = state.agentWorkflow === 'placement'
+    ? [
+        { label: '4:3 横版', action: 'pick-ratio', payload: '4:3' },
+        { label: '3:4 竖版', action: 'pick-ratio', payload: '3:4' }
+      ]
+    : [
+        { label: '1:1 方图', action: 'pick-ratio', payload: '1:1' },
+        { label: '3:4 竖版', action: 'pick-ratio', payload: '3:4' },
+        { label: '4:3 横版', action: 'pick-ratio', payload: '4:3' }
+      ];
+  addChatMessage('assistant', 'options', '请选择**画面比例**：', { options: options });
+  state.agentStep = 'awaiting-ratio';
+}
+
+function askAgentPosterPrompt() {
+  addChatMessage('assistant', 'options',
+    '请输入一段简短的**创意提示词**，例如“制作 618 活动海报”；不需要可以跳过。',
+    { options: [{ label: '跳过创意提示词', action: 'skip-poster-prompt', payload: '' }] });
+  state.agentStep = 'awaiting-poster-prompt';
+}
+
+function askAgentPosterPrice() {
+  addChatMessage('assistant', 'options',
+    '请输入**商品价格**（1 至 8 位正整数）；不需要展示价格可以跳过。',
+    { options: [{ label: '跳过商品价格', action: 'skip-poster-price', payload: '' }] });
+  state.agentStep = 'awaiting-poster-price';
+}
+
+function finishAgentParams() {
+  var summary;
+  if (state.agentWorkflow === 'product') {
+    summary = '✅ 参数已全部确认：\n\n' +
+      '• 展示角度：**' + state.productView + '**\n' +
+      '• 清晰度：**' + state.productResolution + '**\n' +
+      '• 比例：**' + state.productRatio + '**\n' +
+      '• 参考图：**' + (state.productReferenceFile ? '已上传' : '未使用') + '**';
+  } else if (state.agentWorkflow === 'poster') {
+    summary = '✅ 参数已全部确认：\n\n' +
+      '• 模特：**' + (state.posterNeedsModel ? '需要' : '不需要') + '**\n' +
+      '• 清晰度：**' + state.posterResolution + '**\n' +
+      '• 比例：**' + state.posterRatio + '**\n' +
+      '• 创意提示词：**' + (state.posterPrompt || '由 AI 自由策划') + '**\n' +
+      '• 商品价格：**' + (state.posterPrice ? '¥' + state.posterPrice : '不展示') + '**\n' +
+      '• 参考图：**' + (state.posterReferenceFile ? '已上传' : '未使用') + '**';
+  } else {
+    summary = '✅ 参数已全部确认：\n\n' +
+      '• 场景图：**' + state.scene + '**\n' +
+      '• 模特：**' + (state.needsModel ? '需要' : '不需要') + '**\n' +
+      '• 清晰度：**' + state.resolution + '**\n' +
+      '• 比例：**' + state.ratio + '**';
+  }
+
+  addChatMessage('assistant', 'options', summary + '\n\n一切就绪，点击下方按钮开始生成。', {
+    options: [{ label: '🚀 开始生成', action: 'generate', payload: '' }]
+  });
+  state.agentStep = 'ready-to-generate';
+}
+
+async function prepareAgentGeneration(label) {
+  addChatLoading('正在校验积分…');
+  renderChatMessages();
+  if (!(await ensureCreditsAvailable())) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ 积分不足，无法执行该操作。请充值后重试。');
+    renderChatMessages();
+    return false;
+  }
+  removeChatLoading();
+  addChatLoading(label);
+  renderChatMessages();
+  return true;
+}
+
+function completeAgentGeneration(image, content, meta, fileName) {
+  removeChatLoading();
+  addChatMessage('assistant', 'result-card', content, {
+    imageUrl: image,
+    meta: meta,
+    fileName: fileName
+  });
+  addChatMessage('assistant', 'options', '接下来要做什么？', {
+    options: [
+      { label: '🔄 再生成一张', action: 'regenerate', payload: '' },
+      { label: '↔️ 切换生图模式', action: 'change-workflow', payload: '' },
+      { label: '⚙️ 进入专家模式', action: 'switch-expert', payload: '' }
+    ]
+  });
+  state.agentStep = 'done';
+  renderChatMessages();
+}
+
+async function handleAgentPlacementGenerate() {
   var hasRoomContext = state.roomMode === 'virtual'
     ? Boolean(state.roomAnalysis && state.virtualStyle)
     : Boolean(state.roomFile && state.roomAnalysis);
@@ -1169,19 +1548,7 @@ async function handleAgentGenerate() {
     return;
   }
 
-  addChatLoading('正在校验积分…');
-  renderChatMessages();
-
-  if (!(await ensureCreditsAvailable())) {
-    removeChatLoading();
-    addChatMessage('assistant', 'error', '❌ 积分不足，无法执行该操作。请充值后重试。');
-    renderChatMessages();
-    return;
-  }
-
-  removeChatLoading();
-  addChatLoading('正在生成效果图…这可能需要 30-60 秒 ⏳');
-  renderChatMessages();
+  if (!(await prepareAgentGeneration('正在生成空间摆放图…这可能需要 30-60 秒 ⏳'))) return;
 
   var formData = new FormData();
   if (state.roomMode === 'upload') {
@@ -1210,31 +1577,117 @@ async function handleAgentGenerate() {
       // non-fatal
     }
 
-    addChatMessage('assistant', 'result-card',
-      '🎉 效果图已生成！以下是你的沙发摆放方案：',
-      { imageUrl: payload.image, meta: getParamsLabel() });
-
-    addChatMessage('assistant', 'options',
-      '还需要生成其他方案吗？',
-      {
-        options: [
-          { label: '🔄 重新开始', action: 'restart', payload: '' },
-          { label: '⚙️ 切换到专家模式', action: 'switch-expert', payload: '' }
-        ]
-      });
-
+    els.generatedImage.src = payload.image;
+    els.generatedImage.classList.add('has-image');
+    els.downloadLink.href = payload.image;
+    els.generationNote.textContent = payload.note || getParamsLabel();
+    els.generationArea.hidden = false;
     addHistoryItem(payload);
-    state.agentStep = 'done';
+    completeAgentGeneration(payload.image, '🎉 空间摆放图已生成！', getParamsLabel(), 'sofa-placement.png');
   } catch (error) {
     removeChatLoading();
     addChatMessage('assistant', 'error', '❌ 生成失败：' + escapeHtml(error.message));
+    renderChatMessages();
   }
+}
 
-  renderChatMessages();
+async function handleAgentProductGenerate() {
+  if (!state.productSofaFile || !state.productSofaAnalysis) {
+    addChatMessage('assistant', 'error', '⚠️ 请先上传并分析沙发图片。');
+    renderChatMessages();
+    return;
+  }
+  if (!(await prepareAgentGeneration('正在生成产品图…这可能需要 30-60 秒 ⏳'))) return;
+
+  var formData = new FormData();
+  formData.append('sofaImage', state.productSofaFile);
+  formData.append('sofaAnalysis', state.productSofaAnalysis);
+  formData.append('view', state.productView);
+  formData.append('resolution', state.productResolution);
+  formData.append('ratio', state.productRatio);
+  if (state.productReferenceFile) formData.append('referenceImage', state.productReferenceFile);
+
+  try {
+    var payload = await postForm('/api/generate-product', formData);
+    await consumeCredits();
+    try {
+      await uploadGeneratedImage(payload.image, 'sofa-product');
+    } catch (uploadError) {
+      // non-fatal
+    }
+
+    els.productGeneratedImage.src = payload.image;
+    els.productGeneratedImage.classList.add('has-image');
+    els.productDownloadLink.href = payload.image;
+    els.productGenerationNote.textContent = payload.note || getProductParamsLabel(payload.params?.usedReference);
+    els.productGenerationArea.hidden = false;
+    addProductHistoryItem(payload);
+    completeAgentGeneration(payload.image, '🎉 产品图已生成！', getProductParamsLabel(payload.params?.usedReference), 'sofa-product.png');
+  } catch (error) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ 生成失败：' + escapeHtml(error.message));
+    renderChatMessages();
+  }
+}
+
+async function handleAgentPosterGenerate() {
+  if (!state.posterSofaFile || !state.posterSofaAnalysis) {
+    addChatMessage('assistant', 'error', '⚠️ 请先上传并分析沙发图片。');
+    renderChatMessages();
+    return;
+  }
+  if (!(await prepareAgentGeneration('正在策划并生成海报…这可能需要一些时间 ⏳'))) return;
+
+  var formData = new FormData();
+  formData.append('sofaImage', state.posterSofaFile);
+  formData.append('sofaAnalysis', state.posterSofaAnalysis);
+  formData.append('needsModel', String(state.posterNeedsModel));
+  formData.append('resolution', state.posterResolution);
+  formData.append('ratio', state.posterRatio);
+  formData.append('prompt', state.posterPrompt);
+  formData.append('price', state.posterPrice);
+  if (state.posterReferenceFile) formData.append('referenceImage', state.posterReferenceFile);
+
+  try {
+    var payload = await postFormStream('/api/generate-poster', formData, function (event) {
+      addChatLoading(event.title || '正在生成海报…');
+      renderChatMessages();
+    });
+    await consumeCredits();
+    try {
+      await uploadGeneratedImage(payload.image, 'sofa-poster', payload.imageUploadSignature);
+    } catch (uploadError) {
+      // non-fatal
+    }
+
+    els.posterGeneratedImage.src = payload.image;
+    els.posterGeneratedImage.classList.add('has-image');
+    els.posterGeneratedImage.parentElement.style.aspectRatio = 'auto';
+    els.posterDownloadLink.href = payload.image;
+    renderPosterCopyPreview(payload.copy);
+    els.posterGenerationNote.textContent = getPosterParamsLabel(payload.params?.usedReference, payload.params?.price);
+    els.posterGenerationArea.hidden = false;
+    addPosterHistoryItem(payload);
+    completeAgentGeneration(payload.image, '🎉 宣传海报已生成！', getPosterParamsLabel(payload.params?.usedReference, payload.params?.price), 'sofa-poster.png');
+  } catch (error) {
+    removeChatLoading();
+    addChatMessage('assistant', 'error', '❌ 生成失败：' + escapeHtml(error.message));
+    renderChatMessages();
+  }
+}
+
+function handleAgentGenerate() {
+  if (state.agentWorkflow === 'product') {
+    handleAgentProductGenerate();
+  } else if (state.agentWorkflow === 'poster') {
+    handleAgentPosterGenerate();
+  } else {
+    handleAgentPlacementGenerate();
+  }
 }
 
 async function handleAgentFileUpload(target, file) {
-  if (!file) return;
+  if (!file || !state.agentWorkflow) return;
 
   try {
     var prepared = await prepareToolImage(file);
@@ -1256,30 +1709,32 @@ async function handleAgentFileUpload(target, file) {
 
       var roomPayload = await postForm('/api/analyze-room', makeImageForm('image', state.roomFile));
       state.roomAnalysis = roomPayload.analysis || '模型没有返回文字分析。';
+      previewFile(state.roomFile, els.roomPreview);
+      els.roomAnalysisBox.textContent = state.roomAnalysis;
+      els.roomAnalysisBox.hidden = false;
 
       removeChatLoading();
-      addChatMessage('assistant', 'text',
-        '✅ 房间分析完成！\n\n' +
-        '接下来请上传你的**沙发图片** 🛋️，我会分析沙发的外形、材质和颜色。');
-      addChatMessage('assistant', 'image-upload',
-        '请上传沙发照片',
-        { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
-      state.agentStep = 'awaiting-sofa-upload';
+      addChatMessage('assistant', 'text', '✅ 房间分析完成！');
+      continueAfterAgentRoomReady();
     } else if (target === 'agentSofaInput') {
-      state.sofaFile = prepared;
       var sofaPreviewUrl = URL.createObjectURL(file);
       addChatMessage('user', 'image-preview', '已上传沙发照片', { imageUrl: sofaPreviewUrl });
 
       addChatLoading('正在分析沙发…');
       renderChatMessages();
 
-      var sofaPayload = await postForm('/api/analyze-sofa', makeImageForm('image', state.sofaFile));
-      state.sofaAnalysis = sofaPayload.analysis || '模型没有返回文字分析。';
+      var analysisUrl = state.agentWorkflow === 'poster' ? '/api/analyze-poster-sofa' : '/api/analyze-sofa';
+      var sofaPayload = await postForm(analysisUrl, makeImageForm('image', prepared));
+      var sofaAnalysis = sofaPayload.analysis || '模型没有返回文字分析。';
+      syncReusableSofaContext(prepared, sofaAnalysis);
 
       removeChatLoading();
       addChatMessage('assistant', 'text', '✅ 沙发分析完成！');
-      showParamOptions();
-      state.agentStep = 'awaiting-params';
+      if (state.agentWorkflow === 'placement') {
+        startAgentParamFlow();
+      } else {
+        askAgentReferenceOption();
+      }
     }
 
     renderChatMessages();
@@ -1290,57 +1745,125 @@ async function handleAgentFileUpload(target, file) {
   }
 }
 
-function showParamOptions() {
-  askSceneOption();
+async function handleAgentReferenceUpload(file) {
+  if (!file || !['product', 'poster'].includes(state.agentWorkflow)) return;
+
+  try {
+    var prepared = await prepareToolImage(file);
+    var previewUrl = URL.createObjectURL(file);
+    addChatMessage('user', 'image-preview', '已上传参考图片', { imageUrl: previewUrl });
+
+    if (state.agentWorkflow === 'product') {
+      state.productReferenceFile = prepared;
+      previewFile(prepared, els.productReferencePreview);
+      els.productReferenceName.textContent = file.name;
+      els.productReferencePreviewWrap.hidden = false;
+      els.productReferenceUploadTitle.textContent = '更换参考图片';
+    } else {
+      state.posterReferenceFile = prepared;
+      previewFile(prepared, els.posterReferencePreview);
+      els.posterReferenceName.textContent = file.name;
+      els.posterReferencePreviewWrap.hidden = false;
+      els.posterReferenceUploadTitle.textContent = '更换参考海报';
+    }
+
+    addChatMessage('assistant', 'text', '✅ 参考图片已添加。');
+    startAgentParamFlow();
+    renderChatMessages();
+  } catch (error) {
+    addChatMessage('assistant', 'error', '❌ ' + escapeHtml(error.message));
+    renderChatMessages();
+  }
 }
 
-function askSceneOption() {
-  addChatMessage('assistant', 'options',
-    '请选择**场景图类型**（远景 / 中近景 / 近景）：',
-    {
-      options: [
-        { label: '🏞️ 远景图', action: 'pick-scene', payload: '远景图' },
-        { label: '📐 中近景', action: 'pick-scene', payload: '中近景' },
-        { label: '🔍 近景', action: 'pick-scene', payload: '近景' }
-      ]
-    });
+function resetAgentParameters() {
+  state.scene = '远景图';
+  state.needsModel = false;
+  state.modelDescription = '';
+  state.resolution = '1K';
+  state.ratio = '4:3';
+  state.productView = '沙发正面';
+  state.productResolution = '1K';
+  state.productRatio = '1:1';
+  state.posterNeedsModel = false;
+  state.posterResolution = '1K';
+  state.posterRatio = '3:4';
+  state.posterPrompt = '';
+  state.posterPrice = '';
+
+  syncSegmentedControl('scene', state.scene);
+  syncSegmentedControl('needsModel', String(state.needsModel));
+  syncSegmentedControl('resolution', state.resolution);
+  syncSegmentedControl('ratio', state.ratio);
+  syncSegmentedControl('productView', state.productView);
+  syncSegmentedControl('productResolution', state.productResolution);
+  syncSegmentedControl('productRatio', state.productRatio);
+  syncSegmentedControl('posterNeedsModel', String(state.posterNeedsModel));
+  syncSegmentedControl('posterResolution', state.posterResolution);
+  syncSegmentedControl('posterRatio', state.posterRatio);
+  els.posterPromptInput.value = '';
+  els.posterPromptCount.textContent = '0 / 100';
+  els.posterPriceInput.value = '';
 }
 
-function askModelOption() {
-  addChatMessage('assistant', 'options',
-    '是否需要**模特**入镜？你也可以直接描述想要的模特，比如"亚裔女模特"、"欧美男模特"等。',
-    {
-      options: [
-        { label: '👤 需要模特', action: 'pick-model', payload: 'true' },
-        { label: '🚫 不需要', action: 'pick-model', payload: 'false' }
-      ]
-    });
+function prepareAgentWorkflowSwitch() {
+  var sofaContext = getReusableSofaContext();
+  state.roomFile = null;
+  state.roomAnalysis = '';
+  state.roomMode = 'upload';
+  state.virtualStyle = '现代简约';
+  clearProductReference();
+  clearPosterReference();
+  resetAgentParameters();
+  if (sofaContext) syncReusableSofaContext(sofaContext.file, sofaContext.analysis);
+  state.agentWorkflow = '';
+  showAgentWorkflowOptions('已保留沙发图片和分析结果。请选择新的生图模式：');
 }
 
-function askResolutionOption() {
-  addChatMessage('assistant', 'options',
-    '请选择**清晰度**：',
-    {
-      options: [
-        { label: '1K', action: 'pick-resolution', payload: '1K' },
-        { label: '2K', action: 'pick-resolution', payload: '2K' },
-        { label: '4K', action: 'pick-resolution', payload: '4K' }
-      ]
-    });
-}
+function resetAgentSessionData() {
+  state.agentWorkflow = '';
+  state.currentStep = 1;
+  state.productStep = 1;
+  state.posterStep = 1;
+  state.roomMode = 'upload';
+  state.virtualStyle = '现代简约';
+  state.roomFile = null;
+  state.roomAnalysis = '';
+  state.sofaFile = null;
+  state.sofaAnalysis = '';
+  state.productSofaFile = null;
+  state.productSofaAnalysis = '';
+  state.posterSofaFile = null;
+  state.posterSofaAnalysis = '';
+  state.history = [];
+  state.productHistory = [];
+  state.posterHistory = [];
+  clearProductReference();
+  clearPosterReference();
+  resetAgentParameters();
 
-function askRatioOption() {
-  addChatMessage('assistant', 'options',
-    '请选择**画面比例**：',
-    {
-      options: [
-        { label: '4:3 横版', action: 'pick-ratio', payload: '4:3' },
-        { label: '3:4 竖版', action: 'pick-ratio', payload: '3:4' }
-      ]
-    });
+  [els.roomInput, els.sofaInput, els.productSofaInput, els.posterSofaInput,
+    els.agentRoomInput, els.agentSofaInput, els.agentReferenceInput].forEach(function (input) {
+    if (input) input.value = '';
+  });
+  [els.roomPreview, els.sofaPreview, els.productSofaPreview, els.posterSofaPreview,
+    els.generatedImage, els.productGeneratedImage, els.posterGeneratedImage].forEach(clearImagePreview);
+  [els.roomAnalysisBox, els.sofaAnalysisBox, els.productSofaAnalysisBox, els.posterSofaAnalysisBox].forEach(function (box) {
+    box.textContent = '';
+    box.hidden = true;
+  });
+  els.generationArea.hidden = true;
+  els.productGenerationArea.hidden = true;
+  els.posterGenerationArea.hidden = true;
+  els.posterCopyPreview.hidden = true;
+  renderHistory();
+  renderProductHistory();
+  renderPosterHistory();
+  updateRoomModeUI();
 }
 
 function resetAgentChat() {
+  resetAgentSessionData();
   state.chatMessages = [];
   state.agentStep = 'welcome';
   state.chatLoading = false;
@@ -1351,18 +1874,8 @@ function initAgentChat() {
   if (state.chatMessages.length > 0) return;
 
   addChatMessage('assistant', 'text',
-    '你好！我是你的 **AI 沙发摆放助手** 🛋️\n\n我会一步步帮你完成沙发摆放效果图的制作。首先，请选择房间来源：');
-
-  addChatMessage('assistant', 'options',
-    '请选择：',
-    {
-      options: [
-        { label: '📷 上传房间照片', action: 'pick-room-source', payload: 'upload' },
-        { label: '🏠 虚拟房间', action: 'pick-room-source', payload: 'virtual' }
-      ]
-    });
-
-  state.agentStep = 'awaiting-room-source';
+    '你好！我是你的 **AI 沙发图片助手** 🛋️\n\n我可以引导你生成空间摆放图、产品图或宣传海报。');
+  showAgentWorkflowOptions();
   renderChatMessages();
 }
 
@@ -1376,26 +1889,14 @@ function switchMode(mode) {
   enterMode(mode);
 }
 
-function syncExpertToAgent() {
-  if (state.roomAnalysis && state.sofaAnalysis && state.sofaFile) {
-    addChatMessage('assistant', 'text',
-      '📋 已从专家模式同步你的进度。\n\n' +
-      '• 房间模式：**' + (state.roomMode === 'virtual' ? '虚拟' + state.virtualStyle : '上传房间') + '**\n' +
-      '• 房间和沙发分析已完成 ✅\n\n' +
-      '接下来请确认生成参数：');
-    showParamOptions();
-    state.agentStep = 'awaiting-params';
-  } else if (state.roomAnalysis) {
-    addChatMessage('assistant', 'text',
-      '📋 已从专家模式同步你的进度。\n\n• 房间分析已完成 ✅\n\n接下来请上传沙发图片 🛋️');
-    addChatMessage('assistant', 'image-upload',
-      '请上传沙发照片',
-      { target: 'agentSofaInput', uploadLabel: '点击上传沙发照片', uploadHint: '支持 JPG、PNG、WebP，最大 20MB' });
-    state.agentStep = 'awaiting-sofa-upload';
-  } else {
-    initAgentChat();
+function switchAgentToExpert() {
+  state.expertWorkflow = state.agentWorkflow || state.expertWorkflow || 'placement';
+  if (state.expertWorkflow === 'placement') {
+    if (state.roomAnalysis && state.sofaAnalysis) state.currentStep = 3;
+    else if (state.roomAnalysis) state.currentStep = 2;
+    else state.currentStep = 1;
   }
-  renderChatMessages();
+  enterMode('expert');
 }
 
 els.expertWorkflowTabs.forEach((button, index) => {
@@ -1686,7 +2187,7 @@ els.generatePosterBtn.addEventListener('click', async () => {
 
     try {
       setBusy(els.generatePosterBtn, '正在保存海报...', true);
-      await uploadGeneratedImage(finalPayload.image, 'sofa-poster');
+      await uploadGeneratedImage(finalPayload.image, 'sofa-poster', finalPayload.imageUploadSignature);
     } catch (uploadError) {
       showToast(`海报已生成并扣除积分，但保存到我的图片失败：${uploadError.message}`);
     }
@@ -2031,7 +2532,7 @@ document.querySelector('#topbarToAgent')?.addEventListener('click', function () 
 });
 
 document.querySelector('#topbarToExpert')?.addEventListener('click', function () {
-  switchMode('expert');
+  switchAgentToExpert();
 });
 
 var chatNewBtn = document.querySelector('#chatNewBtn');
@@ -2046,67 +2547,88 @@ function parseUserInput(text) {
   var t = text.replace(/\s+/g, '').toLowerCase();
   var step = state.agentStep;
 
-  // 全局命令 — 随时可用
-  if (/专家|切换/.test(t)) return { action: 'switch-expert', payload: '' };
-  if (/重新|再来|重来|从头/.test(t)) return { action: 'restart', payload: '' };
+  if (/专家模式|进入专家|切换到专家/.test(t)) return { action: 'switch-expert', payload: '' };
+  if (/再生成|再来一张|再做一张/.test(t)) return { action: 'regenerate', payload: '' };
+  if (/切换生图模式|切换模式|换个模式/.test(t)) return { action: 'change-workflow', payload: '' };
+  if (/重新开始|新对话|重来|从头/.test(t)) return { action: 'restart', payload: '' };
 
-  // 房间来源 — 随时可切换
+  if (step === 'awaiting-workflow') {
+    if (/空间|摆放|房间效果/.test(t)) return { action: 'pick-workflow', payload: 'placement' };
+    if (/产品/.test(t)) return { action: 'pick-workflow', payload: 'product' };
+    if (/海报|宣传图|促销图/.test(t)) return { action: 'pick-workflow', payload: 'poster' };
+  }
+
   if (/上传房间|拍照|真实|实拍|房间照片|本地上传/.test(t)) {
-    if (state.roomMode !== 'upload' || step === 'awaiting-room-source') {
+    if (state.agentWorkflow === 'placement' && step === 'awaiting-room-source') {
       return { action: 'pick-room-source', payload: 'upload' };
     }
   }
   if (/虚拟房间|虚拟|生成房间/.test(t)) {
-    if (state.roomMode !== 'virtual' || step === 'awaiting-room-source') {
+    if (state.agentWorkflow === 'placement' && step === 'awaiting-room-source') {
       return { action: 'pick-room-source', payload: 'virtual' };
     }
   }
 
-  // 风格选择 — 随时可切换（虚拟房间模式下）
-  if (state.roomMode === 'virtual' || step === 'awaiting-style-select') {
+  if (step === 'awaiting-style-select') {
     if (/现代简约/.test(t)) return { action: 'pick-style', payload: '现代简约' };
     if (/北欧风?$|北欧(?!房间)/.test(t)) return { action: 'pick-style', payload: '北欧风' };
     if (/新中式/.test(t)) return { action: 'pick-style', payload: '新中式' };
     if (/奶油风/.test(t)) return { action: 'pick-style', payload: '奶油风' };
     if (/寂宅风|侘寂/.test(t)) return { action: 'pick-style', payload: '寂宅风' };
     if (/轻奢风/.test(t)) return { action: 'pick-style', payload: '轻奢风' };
-    // 如果是虚拟模式且在选风格步骤，没有匹配到预设，视为自定义风格
-    if (step === 'awaiting-style-select' && text.length > 0 && text.length < 30) {
+    if (text.length > 0 && text.length < 30) {
       return { action: 'pick-custom-style', payload: text };
     }
   }
 
-  // 按步骤匹配
   if (step === 'awaiting-room-source') {
     if (/上传|拍照|真实|实拍|房间照片/.test(t)) return { action: 'pick-room-source', payload: 'upload' };
     if (/虚拟|生成/.test(t)) return { action: 'pick-room-source', payload: 'virtual' };
   }
-
-  if (step === 'awaiting-room-upload') {
-    return { action: 'upload-room', payload: '' };
+  if (step === 'awaiting-room-upload') return { action: 'upload-room', payload: '' };
+  if (step === 'awaiting-sofa-upload') return { action: 'upload-sofa', payload: '' };
+  if (step === 'awaiting-reference-choice') {
+    if (/上传|参考/.test(t)) return { action: 'upload-reference', payload: '' };
+    if (/跳过|不用|不需要|没有/.test(t)) return { action: 'skip-reference', payload: '' };
   }
-
-  if (step === 'awaiting-sofa-upload') {
-    return { action: 'upload-sofa', payload: '' };
-  }
-
-  if (step === 'awaiting-params' || step === 'ready-to-generate' || step === 'awaiting-sofa-upload' || step === 'done') {
-    if (/远景|远景图|全景/.test(t)) return { action: 'pick-scene', payload: '远景图' };
+  if (step === 'awaiting-reference-upload') return { action: 'upload-reference-file', payload: '' };
+  if (step === 'awaiting-scene') {
     if (/中近景/.test(t)) return { action: 'pick-scene', payload: '中近景' };
-    if (/近景(?!图)/.test(t)) return { action: 'pick-scene', payload: '近景' };
-    if (/需要模特|有模特|要模特|带模特|有人/.test(t)) return { action: 'pick-model', payload: 'true' };
-    if (/不要模特|不需要模特|无模特|没人/.test(t)) return { action: 'pick-model', payload: 'false' };
-    // 如果不在参数选择步骤且输入不是预定义关键词，可能是在描述自定义模特
-    if (step === 'awaiting-params' && text.length > 0 && text.length < 40 &&
-        !/远景|中近景|近景|4K|2K|1K|4:3|3:4|横|竖|生成|开始|确认|好了/.test(t)) {
+    if (/远景|全景/.test(t)) return { action: 'pick-scene', payload: '远景图' };
+    if (/近景/.test(t)) return { action: 'pick-scene', payload: '近景' };
+  }
+  if (step === 'awaiting-product-view') {
+    if (/背面|后面/.test(t)) return { action: 'pick-product-view', payload: '沙发背面' };
+    if (/侧面|侧边/.test(t)) return { action: 'pick-product-view', payload: '沙发侧面' };
+    if (/正面|微侧/.test(t)) return { action: 'pick-product-view', payload: '沙发正面' };
+  }
+  if (step === 'awaiting-model') {
+    if (/不要|不需要|无模特|没人/.test(t)) return { action: 'pick-model', payload: 'false' };
+    if (/需要|要模特|有模特|有人/.test(t)) return { action: 'pick-model', payload: 'true' };
+    if (state.agentWorkflow === 'placement' && text.length > 0 && text.length < 40) {
       return { action: 'pick-custom-model', payload: text };
     }
+  }
+  if (step === 'awaiting-resolution') {
     if (/4K|4k|超清/.test(t)) return { action: 'pick-resolution', payload: '4K' };
     if (/2K|2k|高清/.test(t)) return { action: 'pick-resolution', payload: '2K' };
     if (/1K|1k|标清/.test(t)) return { action: 'pick-resolution', payload: '1K' };
-    if (/4:3|横|横版|横图/.test(t)) return { action: 'pick-ratio', payload: '4:3' };
+  }
+  if (step === 'awaiting-ratio') {
+    if (/1:1|方图|正方形/.test(t)) return { action: 'pick-ratio', payload: '1:1' };
     if (/3:4|竖|竖版|竖图/.test(t)) return { action: 'pick-ratio', payload: '3:4' };
-    if (/生成|开始|确认|好了|可以|做吧|go|ok|行|好/.test(t)) return { action: 'generate', payload: '' };
+    if (/4:3|横|横版|横图/.test(t)) return { action: 'pick-ratio', payload: '4:3' };
+  }
+  if (step === 'awaiting-poster-prompt') {
+    if (/^(跳过|不用|不需要|没有)$/.test(t)) return { action: 'skip-poster-prompt', payload: '' };
+    return { action: 'set-poster-prompt', payload: text };
+  }
+  if (step === 'awaiting-poster-price') {
+    if (/^(跳过|不用|不需要|没有)$/.test(t)) return { action: 'skip-poster-price', payload: '' };
+    return { action: 'set-poster-price', payload: text };
+  }
+  if (step === 'ready-to-generate' && /生成|开始|确认|好了|可以|做吧|go|ok|行|好/.test(t)) {
+    return { action: 'generate', payload: '' };
   }
 
   return null;
@@ -2114,13 +2636,22 @@ function parseUserInput(text) {
 
 function getStepHint() {
   var hints = {
+    'awaiting-workflow': '请选择生图模式：空间摆放图、产品图或海报模式。',
     'awaiting-room-source': '请选择房间来源：输入"上传"使用真实照片，或输入"虚拟"创建虚拟房间。',
     'awaiting-style-select': '请选择你喜欢的风格，例如：现代简约、北欧风、新中式、奶油风、寂宅风、轻奢风。',
     'awaiting-room-upload': '请上传一张房间照片，点击上方上传区域或直接拖拽图片。',
     'awaiting-sofa-upload': '请上传一张沙发照片，点击上方上传区域或直接拖拽图片。',
-    'awaiting-params': '请选择参数，例如："远景图"、"需要模特"、"4K"、"4:3横版"，然后说"开始生成"。',
+    'awaiting-reference-choice': '请选择上传参考图，或跳过此步骤。',
+    'awaiting-reference-upload': '请点击上方上传区域选择参考图片。',
+    'awaiting-scene': '请选择远景图、中近景或近景。',
+    'awaiting-product-view': '请选择正面微侧、标准侧面或标准背面。',
+    'awaiting-model': '请选择是否需要模特。',
+    'awaiting-resolution': '请选择 1K、2K 或 4K 清晰度。',
+    'awaiting-ratio': '请选择画面比例。',
+    'awaiting-poster-prompt': '请输入海报创意提示词，或选择跳过。',
+    'awaiting-poster-price': '请输入 1 至 8 位商品价格，或选择跳过。',
     'ready-to-generate': '参数已就绪！输入"生成"开始，或继续调整参数。',
-    'done': '效果图已生成！输入"重新开始"再来一次，或"切换专家模式"。'
+    'done': '图片已生成！可以再生成一张、切换生图模式或进入专家模式。'
   };
   return hints[state.agentStep] || '请按上方选项继续操作，或输入"切换专家模式"使用完整参数面板。';
 }
@@ -2136,11 +2667,6 @@ els.chatSendBtn.addEventListener('click', function () {
   var parsed = parseUserInput(text);
 
   if (parsed) {
-    if (parsed.action === 'switch-expert') {
-      switchMode('expert');
-      renderChatMessages();
-      return;
-    }
     if (parsed.action === 'upload-room') {
       els.agentRoomInput.click();
       renderChatMessages();
@@ -2148,6 +2674,11 @@ els.chatSendBtn.addEventListener('click', function () {
     }
     if (parsed.action === 'upload-sofa') {
       els.agentSofaInput.click();
+      renderChatMessages();
+      return;
+    }
+    if (parsed.action === 'upload-reference-file') {
+      els.agentReferenceInput.click();
       renderChatMessages();
       return;
     }
@@ -2177,11 +2708,6 @@ els.chatMessages.addEventListener('click', function (event) {
     var action = chip.dataset.action;
     var payload = chip.dataset.payload;
 
-    if (action === 'switch-expert') {
-      switchMode('expert');
-      return;
-    }
-
     chip.classList.add('is-selected');
     handleAgentOptionClick(action, payload, false, chip.textContent.trim());
     return;
@@ -2195,6 +2721,8 @@ els.chatMessages.addEventListener('click', function (event) {
       els.agentRoomInput.click();
     } else if (target === 'agentSofaInput') {
       els.agentSofaInput.click();
+    } else if (target === 'agentReferenceInput') {
+      els.agentReferenceInput.click();
     }
     return;
   }
@@ -2212,6 +2740,13 @@ els.agentSofaInput.addEventListener('change', async function () {
   if (!file) return;
   await handleAgentFileUpload('agentSofaInput', file);
   els.agentSofaInput.value = '';
+});
+
+els.agentReferenceInput.addEventListener('change', async function () {
+  var file = els.agentReferenceInput.files?.[0];
+  if (!file) return;
+  await handleAgentReferenceUpload(file);
+  els.agentReferenceInput.value = '';
 });
 
 var modeSplash = document.querySelector('#modeSplash');

@@ -1988,6 +1988,7 @@ body.is-modal-open {
 .msg-body {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -2012,6 +2013,10 @@ body.is-modal-open {
   border-bottom-right-radius: 10px;
   background: linear-gradient(135deg, var(--clay), var(--clay-dark));
   color: #fff;
+}
+
+.msg--user.msg--compact .msg-bubble {
+  white-space: nowrap;
 }
 
 .msg--assistant .msg-bubble {
@@ -2108,6 +2113,15 @@ body.is-modal-open {
   box-shadow: 0 6px 18px rgba(102, 120, 93, 0.16);
 }
 
+.chat-chip:disabled {
+  transform: none;
+  border-color: rgba(102, 120, 93, 0.12);
+  background: rgba(232, 238, 224, 0.34);
+  color: rgba(64, 81, 59, 0.48);
+  box-shadow: none;
+  cursor: default;
+}
+
 .chat-chip.is-selected {
   border-color: rgba(184, 101, 63, 0.38);
   background: linear-gradient(135deg, rgba(255, 246, 232, 0.92), rgba(247, 234, 216, 0.88));
@@ -2135,6 +2149,8 @@ body.is-modal-open {
   padding: 16px;
   cursor: pointer;
   text-align: center;
+  width: 100%;
+  font: inherit;
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -2142,7 +2158,16 @@ body.is-modal-open {
     box-shadow 160ms ease;
 }
 
-.chat-upload-zone:hover {
+.chat-upload-zone:disabled {
+  transform: none;
+  border-color: rgba(125, 61, 38, 0.12);
+  background: rgba(255, 250, 242, 0.34);
+  box-shadow: none;
+  opacity: 0.58;
+  cursor: default;
+}
+
+.chat-upload-zone:not(:disabled):hover {
   transform: translateY(-2px);
   border-color: rgba(184, 101, 63, 0.52);
   background: rgba(255, 247, 234, 0.84);
