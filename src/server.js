@@ -1202,17 +1202,18 @@ function normalizePosterPlan(rawPlan, ratio, hasReference, posterPrompt) {
 }
 
 async function validatePosterText(image, copy, price) {
-  const expectedText = [...new Set([
-    copy.headline,
-    copy.subtitle,
-    ...(copy.requiredEventText || []),
-    ...(price ? [`到手价 ¥${price} 起`, '立即抢购'] : [])
-  ])];
   const featurePoints = [
     ...(copy.verticalSellingPoints || []),
     ...(copy.horizontalSellingPoints || [])
   ];
-  const flexibleFeatureText = featurePoints.flatMap((point) => [point.title, point.description]);
+  const expectedText = [...new Set([
+    copy.headline,
+    copy.subtitle,
+    copy.handwrittenCopy,
+    ...(copy.requiredEventText || []),
+    ...featurePoints.flatMap((point) => [point.title, point.description]),
+    ...(price ? [`到手价 ¥${price} 起`, '立即抢购'] : [])
+  ].filter(Boolean))];
   const iconMappings = featurePoints.map(
     (point, index) => `${index + 1}. “${point.title}｜${point.description}”对应“${point.icon}”`
   );
@@ -1220,18 +1221,16 @@ async function validatePosterText(image, copy, price) {
   const verification = await generateFromParts([
     {
       text: [
-        '你是严格的中文商品海报质检员。请检查主标题、副标题、用户要求的活动名称、价格区，以及每个卖点图标与邻近卖点的语义对应关系。卖点文案无需逐字校验，也不单独校验卖点数量。',
-        `必须逐字正确且清晰的文案为：${expectedText.map((text) => `“${text}”`).join('、')}。价格文案允许换行排版，但字符和数值必须完整准确。`,
-        flexibleFeatureText.length > 0
-          ? `以下是允许同义改写、无需逐字比较的卖点参考：${flexibleFeatureText.map((text) => `“${text}”`).join('、')}。`
-          : '本次没有需要校验的预设卖点模块。',
-        `手写情绪文案“${copy.handwrittenCopy}”只作为辅助氛围元素，不参与逐字、清晰度或完整性校验。`,
+        '你是严格的中文商品海报质检员。请逐字检查画面中的全部中文，包括主标题、副标题、活动名称、手写情绪文案、每条卖点、价格区和按钮文案，并检查每个卖点图标与邻近卖点的语义对应关系。',
+        `画面允许出现且必须逐字正确、完整、清晰的文案为：${expectedText.map((text) => `“${text}”`).join('、')}。允许换行、竖排或倾斜排版，但不得同义改写、增删文字或出现其他文字。`,
+        '逐个观察所有汉字的字形和笔画。即使可以根据上下文猜出含义，只要存在缺笔、多笔、粘连、拆裂、偏旁错误、伪汉字、形似错字、重影或模糊到需要猜测，都必须判定 standardChineseGlyphs 为 false。',
+        '识别画面中所有可见文字并写入 detectedText。若出现允许文案之外的字符、乱码、残缺文字、装饰性伪文字或无法可靠识别的字形，必须判定 noUnexpectedText 为 false。',
         requiresIconValidation
           ? `逐项检查以下图标映射：${iconMappings.join('；')}。每个图标必须紧邻对应卖点，并能直观表达该卖点的物体、身体部位、结构或动作；无关装饰图形、抽象符号、错位图标或重复套用同一图标均不通过。`
           : '本次不要求检查预设卖点图标。',
-        '通过条件要求全部关键文案完整出现、逐字一致且清晰可辨，并且所有要求的卖点图标语义匹配；不要因为卖点文案存在同义改写或其他正常商品说明而判定失败。',
+        '只有全部允许文案逐字一致、字形标准、清晰可辨、没有任何额外或无法识别的文字，并且所有要求的卖点图标语义匹配时才能通过。宁可严格判定失败，也不要放过疑似乱码。',
         '只返回合法 JSON，不要 Markdown，不要解释，结构为：',
-        '{"valid":true,"allExpectedTextPresent":true,"exactText":true,"legible":true,"iconsMatchFeatures":true,"detectedText":["识别到的关键文字"],"issues":[]}'
+        '{"valid":true,"allExpectedTextPresent":true,"exactText":true,"legible":true,"standardChineseGlyphs":true,"noUnexpectedText":true,"iconsMatchFeatures":true,"detectedText":["识别到的全部文字"],"issues":[]}'
       ].join('\n')
     },
     { text: '待校验的完整商品海报。' },
@@ -1239,10 +1238,20 @@ async function validatePosterText(image, copy, price) {
   ], ANALYSIS_MODEL);
   const raw = extractJsonObject(verification.text);
   const iconsMatchFeatures = !requiresIconValidation || raw.iconsMatchFeatures === true;
+  const detectedText = Array.isArray(raw.detectedText)
+    ? raw.detectedText.map((text) => String(text || '').replace(/\s+/g, '')).filter(Boolean)
+    : [];
+  const detectedCorpus = detectedText.join('');
+  const allExpectedTextDetected = expectedText.every((text) => (
+    detectedCorpus.includes(String(text).replace(/\s+/g, ''))
+  ));
   const valid = raw.valid === true
     && raw.allExpectedTextPresent === true
     && raw.exactText === true
     && raw.legible === true
+    && raw.standardChineseGlyphs === true
+    && raw.noUnexpectedText === true
+    && allExpectedTextDetected
     && iconsMatchFeatures;
   const issues = Array.isArray(raw.issues)
     ? raw.issues.map((issue) => cleanPosterDescription(issue, '', 80)).filter(Boolean).slice(0, 5)
@@ -1253,7 +1262,7 @@ async function validatePosterText(image, copy, price) {
       ? issues
       : valid
         ? []
-        : [iconsMatchFeatures ? '文字未完整通过逐字校验' : '卖点图标与邻近特点的语义不匹配']
+        : [iconsMatchFeatures ? '画面文字未通过逐字、字形或乱码校验' : '卖点图标与邻近特点的语义不匹配']
   };
 }
 
@@ -1398,7 +1407,7 @@ async function handleGeneratePoster(req, res) {
         '每个卖点都必须具有一个语义一一对应、简洁清晰且风格统一的线性图标，并展示“标题 + 一句短说明”。图标必须紧邻所属文案，不得错位、调换、重复套用，也不得自行替换为无关装饰符号。所有图标保持相同线宽、视觉尺寸和容器风格，小尺寸下仍能一眼识别。模块的颜色、字体、承载形态和细节由你根据整张海报自由设计，不要简单粘贴生硬的白色文本框。',
         '左侧特点区的各项目之间禁止出现横向分隔线、纵向连接线或表格线。可以保留与图标本身统一的圆形或圆角边框，也可以使用自然留白分组。',
         `纵向卖点：${formatFeaturePoints(plan.copy.verticalSellingPoints)}。`,
-        `底部横向卖点：${formatFeaturePoints(plan.copy.horizontalSellingPoints)}。卖点允许在不改变含义、不虚构产品特征的前提下自然调整措辞。`
+        `底部横向卖点：${formatFeaturePoints(plan.copy.horizontalSellingPoints)}。上述每条卖点的标题和说明必须逐字使用，不得同义改写。`
       ].join('\n');
   const pricePrompt = price
     ? `加入价格区域，清晰准确地显示“到手价 ¥${price} 起”和“立即抢购”。${hasReference ? '位置和样式跟随参考海报的版式逻辑。' : '将价格区域自然整合在底部横向信息条中。'}`
@@ -1411,7 +1420,7 @@ async function handleGeneratePoster(req, res) {
     : [
         '文字排版是本次海报的重点。先分析当前沙发的材质、结构、功能和整体气质，再选择与之匹配的中文字体组合。主标题内部允许自由混合字体、字号和字重，不要求每个字、每一行或每个词大小一致；用显著字级差突出最重要的词。',
         '副标题和卖点根据版面选择清晰、协调的中文字体，不要把全画面都做成楷体或同一种书法字。通过字号、字重、留白、行距和对齐建立层级，避免普通系统默认字体、廉价艺术字或伪中文字体。',
-        '允许仅为提升背景对比度加入非常克制的细描边或柔和短阴影；禁止立体字、厚重描边、发光字、气泡字、霓虹字、金属浮雕和夸张拉伸变形。所有汉字笔画必须完整、清晰、自然。'
+        '允许仅为提升背景对比度加入非常克制的细描边或柔和短阴影；禁止立体字、厚重描边、发光字、气泡字、霓虹字、金属浮雕和夸张拉伸变形。所有汉字笔画必须完整、清晰、自然；宁可简化字体造型，也不能生成伪汉字、形似错字或粘连笔画。'
       ].join('\n');
   const compositionPrompt = hasReference
     ? '整体构图以输入图二的用户参考海报为最高优先级；只在参考图没有明确安排的区域补充默认规则。'
@@ -1439,10 +1448,15 @@ async function handleGeneratePoster(req, res) {
     ? `用户明确要求展示的活动名称为：${plan.copy.requiredEventText.map((text) => `“${text}”`).join('、')}。由你根据版面选择位置和字体层级，但每项都必须完整、清晰、逐字准确地出现。`
     : '用户没有要求展示额外活动名称，不要自行添加活动名称、活动日期、折扣或期限。';
   const validationDetail = [
-    '标题与副标题',
+    '标题、副标题与手写文案',
     ...(plan.copy.requiredEventText.length > 0 ? ['活动名称'] : []),
+    ...(
+      plan.copy.verticalSellingPoints.length + plan.copy.horizontalSellingPoints.length > 0
+        ? ['卖点文字与图标']
+        : []
+    ),
     ...(price ? ['价格'] : []),
-    '卖点图标对应关系'
+    '全部汉字字形与乱码'
   ].join('、');
 
   const imagePrompt = [
@@ -1464,6 +1478,7 @@ async function handleGeneratePoster(req, res) {
     featureModulePrompt,
     pricePrompt,
     '画面只允许出现上述中文主标题、副标题、活动名称、手写情绪文案、卖点和可选价格区域。不要加入英文、拼音、字母、品牌名、Logo、水印或其他无关文字，也不要自行添加折扣、期限或日期。',
+    '所有指定文案都必须逐字照写，不得同义改写。输出前逐个检查每个汉字，确保结构标准、笔画完整、没有粘连、残缺、重影、伪汉字或需要猜测才能辨认的字形。',
     `输出清晰度 ${resolution}，画面比例 ${ratio}。`
   ].join('\n');
 
@@ -1489,7 +1504,7 @@ async function handleGeneratePoster(req, res) {
       : [
           '',
           `这是第 ${attempt} 次生成。上一张海报的内容校验未通过：${validation.issues.join('；')}。`,
-          '最后一张输入图是上一版未通过校验的海报，只参考它可取的视觉设计，不要复制其中的错误关键文字或错误图标。必须修正主标题、副标题、用户活动名称、价格区域，以及卖点图标与邻近特点的对应关系；卖点文案允许同义改写。'
+          '最后一张输入图是上一版未通过校验的海报，只参考它可取的视觉设计，不要复制其中的错误文字、伪汉字或错误图标。必须逐字修正主标题、副标题、手写情绪文案、用户活动名称、全部卖点、价格区域，以及卖点图标与邻近特点的对应关系；任何文案都不得同义改写。'
         ].join('\n');
     const imageInputs = [
       files.sofaImage,
