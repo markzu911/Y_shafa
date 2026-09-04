@@ -1278,6 +1278,16 @@ legend {
   margin-inline: auto;
 }
 
+.poster-generated-frame:has(img.has-image) {
+  aspect-ratio: auto;
+}
+
+.poster-generated-frame img.has-image {
+  min-height: 0;
+  height: auto;
+  object-fit: contain;
+}
+
 .poster-copy-preview {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

@@ -1693,6 +1693,7 @@ els.generatePosterBtn.addEventListener('click', async () => {
 
     els.posterGeneratedImage.src = finalPayload.image;
     els.posterGeneratedImage.classList.add('has-image');
+    els.posterGeneratedImage.parentElement.style.aspectRatio = 'auto';
     els.posterDownloadLink.href = finalPayload.image;
     renderPosterCopyPreview(finalPayload.copy);
     const concept = payload.artDirection?.concept || 'AI 自由创意海报';
@@ -1882,7 +1883,8 @@ document.querySelectorAll('.segmented').forEach((group) => {
 
     if (group.dataset.group === 'posterRatio') {
       const aspectRatios = { '4:3': '4 / 3', '3:4': '3 / 4', '1:1': '1 / 1' };
-      els.posterGeneratedImage.parentElement.style.aspectRatio = aspectRatios[button.dataset.value];
+      els.posterGeneratedImage.parentElement.style.aspectRatio =
+        els.posterGeneratedImage.classList.contains('has-image') ? 'auto' : aspectRatios[button.dataset.value];
     }
   });
 });
